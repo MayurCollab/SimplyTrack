@@ -7,6 +7,8 @@ const MODULES = [
   'services',
   'projects',
   'stages',
+  'closing_note_stages',
+  'alerts',
   'reports',
   'permissions',
   'settings',
@@ -28,6 +30,9 @@ const permissionSchema = new mongoose.Schema(
       delete: { type: Boolean, default: false },
       editBudgetHours: { type: Boolean, default: false },
       editLoggedTime: { type: Boolean, default: false },
+      complete: { type: Boolean, default: false },
+      ignore: { type: Boolean, default: false },
+      editTargetDate: { type: Boolean, default: false },
     },
   },
   { timestamps: true }

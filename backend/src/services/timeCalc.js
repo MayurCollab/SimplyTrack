@@ -18,8 +18,20 @@ function formatMinutes(totalMinutes) {
   return `${h}h ${m}m`;
 }
 
+/** Format duration as hh:mm:ss using floor on whole seconds (no round-up). */
+function formatMinutesAsHms(totalMinutes) {
+  const ms = Math.max(0, (totalMinutes || 0) * 60000);
+  const secs = Math.floor(ms / 1000);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
 module.exports = {
   computeDurationMinutes,
   effectiveDurationMinutes,
   formatMinutes,
+  formatMinutesAsHms,
 };

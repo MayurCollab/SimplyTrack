@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Pencil, Play, Plus, Square } from 'lucide-react'
+import { Controller } from 'react-hook-form'
+import { CheckCircle2, Ban, Pencil, Play, Plus, Square } from 'lucide-react'
 import { taskSchema } from '@/lib/schemas'
 import { useAppForm } from '@/hooks/useAppForm'
 import { usePermission } from '@/hooks/usePermissions'
-import { useTasks, useTaskMutations, useTimerActions } from '@/hooks/useTimer'
+import { useTasks, useTaskMutations, useTimerActions, useRecurringCheck } from '@/hooks/useTimer'
 import { useClients, useServices, useStages, useUsers, useManagers } from '@/hooks/useMasters'
 import { useTimerStore } from '@/store/timerStore'
 import { DataTable } from '@/components/data-table/DataTable'
@@ -15,25 +16,129 @@ import { PriorityBadge, StatusBadge } from '@/components/shared/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import { FormField, FormRow } from '@/components/ui/form-field'
+import { MentionField } from '@/components/shared/MentionField'
 import { Sheet } from '@/components/ui/sheet'
-import { formatElapsed, formatHoursVsBudget, isOverBudget } from '@/lib/time'
+import { CompliancePeriodField } from '@/components/tasks/CompliancePeriodField'
+import { ReviewPointsField } from '@/components/tasks/ReviewPointsField'
+import { AlertField } from '@/components/tasks/AlertField'
+import {
+  CompleteTaskDialog,
+  IgnoreTaskDialog,
+  StatusDatePromptDialog,
+} from '@/components/tasks/LifecycleDialogs'
+import { SuggestedTasksBanner } from '@/components/tasks/SuggestedTasksBanner'
+import {
+  formatClockTime,
+  formatElapsed,
+  formatHoursVsBudget,
+  isOverBudget,
+  liveLoggedMinutes,
+} from '@/lib/time'
+import { addBusinessDays } from '@/lib/businessDays'
+import {
+  buildTaskTitle,
+  formatCompliancePeriodValue,
+  inferCompliancePeriodInput,
+  toDateInputValue,
+} from '@/lib/compliancePeriod'
 import { cn } from '@/lib/utils'
 
 const FORM_ID = 'task-form'
 
 const EMPTY_FORM = {
-  title: '',
   description: '',
+  reviewPoints: [],
   clientId: '',
   serviceId: '',
   assigneeId: '',
   helpingMemberId: '',
   stageId: '',
   priority: 'medium',
-  dueDate: '',
+  compliancePeriodInput: '',
+  taskReceiveDate: new Date().toISOString().slice(0, 10),
+  querySentDate: '',
+  replyReceivedDate: '',
+  targetDate: '',
   budgetHours: 1,
+  isRecurring: false,
+  recurrenceFrequency: '',
+  recurrenceStartDate: '',
+  recurrenceEndDate: '',
+  alertId: '',
+}
+
+function emptyToNull(value) {
+  return value && String(value).trim() ? value : null
+}
+
+function normalizeReviewPoints(points = []) {
+  return points
+    .filter((point) => String(point.description || '').trim())
+    .map((point) => ({
+      ...(point._id ? { _id: point._id } : {}),
+      description: String(point.description).trim(),
+    }))
+}
+
+function isClosedTask(task) {
+  return Boolean(task?.completedAt || task?.ignoredAt)
+}
+
+function IconButton({ title, onClick, className, children, disabled }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick?.(e)
+      }}
+      className={cn(
+        'inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-50',
+        className
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function startOfDayMs(value) {
+  const d = new Date(value)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+function dueStatus(value) {
+  if (!value) return 'none'
+  const days = Math.round((startOfDayMs(value) - startOfDayMs(new Date())) / 86400000)
+  if (days < 0) return 'overdue'
+  if (days === 0) return 'today'
+  if (days <= 2) return 'soon'
+  return 'ok'
+}
+
+function DateCell({ value, tone = 'muted' }) {
+  if (!value) return <span className="text-muted-foreground">—</span>
+  const styles = {
+    overdue: 'font-bold tabular-nums text-red-600',
+    today: 'font-bold tabular-nums text-amber-600',
+    soon: 'font-bold tabular-nums text-amber-600',
+    ok: 'font-bold tabular-nums text-slate-800',
+    muted: 'font-semibold tabular-nums text-slate-700',
+  }
+  return <span className={styles[tone] || styles.muted}>{format(new Date(value), 'dd/MM/yyyy')}</span>
+}
+
+function TaskIdCell({ value }) {
+  if (!value) return <span className="text-muted-foreground">—</span>
+  return (
+    <span className="inline-flex items-center rounded-md bg-indigo-50 px-1.5 py-0.5 font-mono text-xs font-bold tracking-tight text-indigo-700 ring-1 ring-indigo-100">
+      {value}
+    </span>
+  )
 }
 
 function LiveTimer({ startedAt }) {
@@ -43,8 +148,63 @@ function LiveTimer({ startedAt }) {
     return () => clearInterval(id)
   }, [])
   return (
-    <span className="tabular-nums text-xs font-semibold text-green-700">
+    <span className="text-[13px] font-bold leading-none tabular-nums text-emerald-700">
       {formatElapsed(startedAt, now)}
+    </span>
+  )
+}
+
+function TimerSessionMeta({ startedAt, stoppedAt, running }) {
+  const started = formatClockTime(startedAt)
+  const stopped = formatClockTime(stoppedAt)
+  if (!started && !stopped) return null
+
+  return (
+    <p className="max-w-[140px] truncate text-[10px] font-medium leading-tight text-slate-500">
+      {running
+        ? `Started ${started}`
+        : stopped
+          ? `${started} – ${stopped}`
+          : `Started ${started}`}
+    </p>
+  )
+}
+
+function LiveHours({ loggedMinutes, budgetHours, startedAt }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!startedAt) return undefined
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+
+  const total = liveLoggedMinutes(loggedMinutes, startedAt, now)
+  const over = isOverBudget(total, budgetHours)
+  const live = Boolean(startedAt)
+  const budgetMins = (budgetHours || 0) * 60
+  const warn = !over && budgetMins > 0 && total / budgetMins >= 0.8
+
+  return (
+    <span className="inline-flex h-full items-center">
+      <span
+        className={cn(
+          'inline-flex h-5 max-w-full items-center gap-1 rounded px-1.5 text-xs font-bold leading-none tabular-nums',
+          !live && !over && !warn && 'text-slate-800',
+          warn && !live && 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
+          live && !over && 'border border-emerald-200 bg-emerald-50 text-emerald-800',
+          over && !live && 'bg-red-50 text-red-700 ring-1 ring-red-200',
+          over && live && 'border border-red-200 bg-red-50 text-red-700'
+        )}
+        title={live ? 'Hours are updating with the running timer' : undefined}
+      >
+        {live && (
+          <span className="relative flex size-1.5 shrink-0">
+            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative size-1.5 rounded-full bg-emerald-500" />
+          </span>
+        )}
+        {formatHoursVsBudget(total, budgetHours)}
+      </span>
     </span>
   )
 }
@@ -54,12 +214,22 @@ export default function TasksPage() {
   const [status, setStatus] = useState('')
   const [priority, setPriority] = useState('')
   const [staffId, setStaffId] = useState('')
+  const [lifecycle, setLifecycle] = useState('open')
+  const [targetFrom, setTargetFrom] = useState('')
+  const [targetTo, setTargetTo] = useState('')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [completeTask, setCompleteTask] = useState(null)
+  const [ignoreTask, setIgnoreTask] = useState(null)
+  const [statusDatePrompt, setStatusDatePrompt] = useState(null)
+  const skipTargetAuto = useRef(false)
 
   const { allowed: canAdd } = usePermission('tasks', 'add')
   const { allowed: canEdit } = usePermission('tasks', 'edit')
   const { allowed: canEditBudget } = usePermission('tasks', 'editBudgetHours')
+  const { allowed: canEditTarget } = usePermission('tasks', 'editTargetDate')
+  const { allowed: canComplete } = usePermission('tasks', 'complete')
+  const { allowed: canIgnore } = usePermission('tasks', 'ignore')
 
   const filters = useMemo(
     () => ({
@@ -67,12 +237,15 @@ export default function TasksPage() {
       status: status || undefined,
       priority: priority || undefined,
       staffId: staffId || undefined,
+      lifecycle: lifecycle || undefined,
+      targetFrom: targetFrom || undefined,
+      targetTo: targetTo || undefined,
     }),
-    [search, status, priority, staffId]
+    [search, status, priority, staffId, lifecycle, targetFrom, targetTo]
   )
 
   const { data = [], isLoading } = useTasks(filters)
-  const { create, update } = useTaskMutations()
+  const { create, update, complete, ignore } = useTaskMutations()
   const { data: stages = [] } = useStages()
   const { data: users = [] } = useUsers()
   const { data: clients = [] } = useClients()
@@ -95,14 +268,76 @@ export default function TasksPage() {
     defaultValues: EMPTY_FORM,
   })
 
+  const clientId = form.watch('clientId')
   const serviceId = form.watch('serviceId')
+  const compliancePeriodInput = form.watch('compliancePeriodInput')
+  const taskReceiveDate = form.watch('taskReceiveDate')
   const assigneeId = form.watch('assigneeId')
+  const isRecurring = form.watch('isRecurring')
+
+  const { data: recurringCheck } = useRecurringCheck(
+    sheetOpen && !editing ? clientId : null,
+    sheetOpen && !editing ? serviceId : null
+  )
+  const showRecurringFields = Boolean(
+    sheetOpen && !editing && clientId && serviceId && recurringCheck?.isFirstTime
+  )
 
   useEffect(() => {
     if (editing || !serviceId || !sheetOpen) return
     const service = services.find((s) => s._id === serviceId)
     if (service) form.setValue('budgetHours', service.estimatedHours)
   }, [serviceId, services, editing, sheetOpen, form])
+
+  const prevServiceId = useRef('')
+  const prevClientId = useRef('')
+  useEffect(() => {
+    if (!sheetOpen || editing) return
+    if (prevServiceId.current && prevServiceId.current !== serviceId) {
+      form.setValue('compliancePeriodInput', '')
+      form.setValue('isRecurring', false)
+      form.setValue('recurrenceFrequency', '')
+      form.setValue('alertId', '')
+    }
+    prevServiceId.current = serviceId
+  }, [serviceId, sheetOpen, editing, form])
+
+  useEffect(() => {
+    if (!sheetOpen || editing) return
+    if (prevClientId.current && prevClientId.current !== clientId) {
+      form.setValue('isRecurring', false)
+      form.setValue('recurrenceFrequency', '')
+      form.setValue('alertId', '')
+    }
+    prevClientId.current = clientId
+  }, [clientId, sheetOpen, editing, form])
+
+  useEffect(() => {
+    if (!sheetOpen || !taskReceiveDate || !serviceId) return
+    if (skipTargetAuto.current) {
+      skipTargetAuto.current = false
+      return
+    }
+    const service = services.find((s) => s._id === serviceId)
+    if (!service) return
+    const computed = addBusinessDays(taskReceiveDate, service.turnaroundBusinessDays ?? 0)
+    if (computed) form.setValue('targetDate', computed)
+  }, [taskReceiveDate, serviceId, services, sheetOpen, form])
+
+  const selectedClient = clients.find((c) => c._id === clientId)
+  const selectedService = services.find((s) => s._id === serviceId)
+
+  const titlePreview = useMemo(() => {
+    const periodValue = formatCompliancePeriodValue(
+      compliancePeriodInput,
+      selectedService?.compliancePeriodType
+    )
+    return buildTaskTitle(
+      selectedClient?.organizationName,
+      selectedService?.name,
+      periodValue
+    )
+  }, [selectedClient, selectedService, compliancePeriodInput])
 
   const selectedAssignee = assignees.find((u) => u._id === assigneeId)
 
@@ -118,23 +353,43 @@ export default function TasksPage() {
 
   function openCreate() {
     setEditing(null)
-    form.reset(EMPTY_FORM)
+    form.reset({
+      ...EMPTY_FORM,
+      taskReceiveDate: new Date().toISOString().slice(0, 10),
+      recurrenceStartDate: new Date().toISOString().slice(0, 10),
+    })
     setSheetOpen(true)
   }
 
   function openEdit(row) {
+    skipTargetAuto.current = true
     setEditing(row)
+    const service = services.find(
+      (s) => s._id === (row.serviceId?._id || row.serviceId)
+    )
     form.reset({
-      title: row.title,
       description: row.description || '',
+      reviewPoints: (row.reviewPoints || []).map((point) => ({
+        _id: point._id,
+        description: point.description || '',
+      })),
       clientId: row.clientId?._id || row.clientId || '',
       serviceId: row.serviceId?._id || row.serviceId || '',
       assigneeId: row.assigneeId?._id || row.assigneeId || '',
       helpingMemberId: row.helpingMemberId?._id || row.helpingMemberId || '',
       stageId: row.stageId?._id || row.stageId || '',
       priority: row.priority || 'medium',
-      dueDate: row.dueDate ? new Date(row.dueDate).toISOString().slice(0, 10) : '',
+      compliancePeriodInput: inferCompliancePeriodInput(row, service),
+      taskReceiveDate: toDateInputValue(row.taskReceiveDate),
+      querySentDate: toDateInputValue(row.querySentDate),
+      replyReceivedDate: toDateInputValue(row.replyReceivedDate),
+      targetDate: toDateInputValue(row.targetDate),
       budgetHours: row.budgetHours,
+      isRecurring: false,
+      recurrenceFrequency: '',
+      recurrenceStartDate: '',
+      recurrenceEndDate: '',
+      alertId: '',
     })
     setSheetOpen(true)
   }
@@ -142,27 +397,88 @@ export default function TasksPage() {
   async function onSubmit(values) {
     const payload = {
       ...values,
+      reviewPoints: normalizeReviewPoints(values.reviewPoints),
       helpingMemberId: values.helpingMemberId || null,
+      querySentDate: emptyToNull(values.querySentDate),
+      replyReceivedDate: emptyToNull(values.replyReceivedDate),
+      targetDate: values.targetDate || null,
+      dueDate: values.targetDate || values.taskReceiveDate || null,
+      isRecurring: showRecurringFields ? Boolean(values.isRecurring) : false,
+      recurrenceFrequency: values.isRecurring ? values.recurrenceFrequency || null : null,
+      recurrenceStartDate: values.isRecurring
+        ? emptyToNull(values.recurrenceStartDate)
+        : null,
+      recurrenceEndDate: values.isRecurring ? emptyToNull(values.recurrenceEndDate) : null,
+      alertId: values.isRecurring ? emptyToNull(values.alertId) : null,
     }
     if (editing) {
-      await update.mutateAsync({ id: editing._id, ...payload })
+      const {
+        isRecurring: _r,
+        recurrenceFrequency: _f,
+        recurrenceStartDate: _s,
+        recurrenceEndDate: _e,
+        alertId: _a,
+        ...updatePayload
+      } = payload
+      await update.mutateAsync({ id: editing._id, ...updatePayload })
     } else {
       await create.mutateAsync(payload)
     }
     setSheetOpen(false)
   }
 
+  function handleStageChange(nextStageId) {
+    const prevId = form.getValues('stageId')
+    const next = stages.find((s) => s._id === nextStageId)
+    const prev = stages.find((s) => s._id === prevId)
+
+    if (next?.systemKey === 'query_sent' && !form.getValues('querySentDate')) {
+      setStatusDatePrompt({ type: 'query_sent', nextStageId })
+      return
+    }
+
+    if (
+      prev?.systemKey === 'waiting_client' &&
+      next?.systemKey !== 'waiting_client' &&
+      !form.getValues('replyReceivedDate')
+    ) {
+      setStatusDatePrompt({ type: 'reply_received', nextStageId })
+      return
+    }
+
+    form.setValue('stageId', nextStageId, { shouldValidate: true })
+  }
+
+  function applyStatusDatePrompt({ date }) {
+    if (!statusDatePrompt) return
+    if (statusDatePrompt.type === 'query_sent') {
+      form.setValue('querySentDate', date, { shouldValidate: true })
+    } else {
+      form.setValue('replyReceivedDate', date, { shouldValidate: true })
+    }
+    form.setValue('stageId', statusDatePrompt.nextStageId, { shouldValidate: true })
+    setStatusDatePrompt(null)
+  }
+
   const columnDefs = useMemo(
     () => [
       {
+        field: 'taskCode',
+        headerName: 'Task ID',
+        width: 130,
+        cellRenderer: (p) => <TaskIdCell value={p.value} />,
+      },
+      {
         headerName: 'Client',
         flex: 1.4,
+        cellClass: 'cell-emphasis',
         valueGetter: (p) => p.data.clientId?.organizationName || '—',
       },
       {
         field: 'title',
         headerName: 'Task',
         flex: 2,
+        cellClass: 'cell-emphasis',
       },
       {
         headerName: 'Staff',
@@ -184,93 +500,160 @@ export default function TasksPage() {
       },
       {
         headerName: 'Hours',
-        width: 140,
+        width: 200,
         cellClass: 'tabular-nums',
         cellRenderer: (p) => {
-          const over = isOverBudget(p.data.totalLoggedMinutes, p.data.budgetHours)
+          const runningHere =
+            active?.type === 'task' &&
+            String(active.taskId?._id || active.taskId) === String(p.data._id)
           return (
-            <span className={cn(over && 'font-medium text-red-600')}>
-              {formatHoursVsBudget(p.data.totalLoggedMinutes, p.data.budgetHours)}
-            </span>
+            <LiveHours
+              loggedMinutes={p.data.totalLoggedMinutes}
+              budgetHours={p.data.budgetHours}
+              startedAt={runningHere ? active.startedAt : null}
+            />
           )
         },
       },
       {
+        field: 'taskReceiveDate',
+        headerName: 'Received',
+        width: 110,
+        cellRenderer: (p) => <DateCell value={p.value} />,
+      },
+      {
+        field: 'targetDate',
+        headerName: 'Target',
+        width: 110,
+        cellRenderer: (p) => <DateCell value={p.value} tone="ok" />,
+      },
+      {
         field: 'dueDate',
         headerName: 'Due Date',
-        width: 120,
-        valueFormatter: (p) => (p.value ? format(new Date(p.value), 'dd/MM/yyyy') : '—'),
-        cellClass: (p) => {
-          if (!p.value) return ''
-          const overdue =
-            new Date(p.value) < new Date() &&
-            new Date(p.value).setHours(0, 0, 0, 0) < Date.now()
-          return overdue ? 'text-red-600' : ''
+        width: 110,
+        cellRenderer: (p) => {
+          const closed = isClosedTask(p.data)
+          const tone = closed ? 'muted' : dueStatus(p.value)
+          return <DateCell value={p.value} tone={tone === 'none' ? 'muted' : tone} />
         },
       },
       {
         field: 'createdAt',
         headerName: 'Created',
-        width: 120,
-        valueFormatter: (p) => (p.value ? format(new Date(p.value), 'dd/MM/yyyy') : '—'),
+        width: 110,
+        cellRenderer: (p) => <DateCell value={p.value} />,
       },
       {
         headerName: 'Timer',
-        width: 120,
+        width: 168,
+        minWidth: 150,
         sortable: false,
         cellRenderer: (p) => {
-          if (!canEdit) return null
+          const closed = isClosedTask(p.data)
           const taskId = p.data._id
           const runningHere =
             active?.type === 'task' &&
             String(active.taskId?._id || active.taskId) === String(taskId)
+          const startedAt = runningHere ? active.startedAt : p.data.lastTimerStartedAt
+          const stoppedAt = runningHere ? null : p.data.lastTimerStoppedAt
+
+          if (closed) {
+            return (
+              <div className="flex h-full flex-col justify-center gap-0.5">
+                <span className="text-xs font-semibold text-slate-500">
+                  {p.data.completedAt ? 'Completed' : 'Ignored'}
+                </span>
+                <TimerSessionMeta startedAt={startedAt} stoppedAt={stoppedAt} />
+              </div>
+            )
+          }
+
+          if (!canEdit) {
+            return runningHere ? (
+              <div className="flex h-full flex-col justify-center gap-0.5">
+                <LiveTimer startedAt={active.startedAt} />
+                <TimerSessionMeta startedAt={startedAt} running />
+              </div>
+            ) : (
+              <TimerSessionMeta startedAt={startedAt} stoppedAt={stoppedAt} />
+            )
+          }
 
           if (runningHere) {
             return (
               <div className="flex h-full items-center gap-1.5">
-                <LiveTimer startedAt={active.startedAt} />
-                <button
-                  type="button"
-                  className="rounded p-1 hover:bg-muted"
+                <IconButton
+                  title="Stop timer"
                   onClick={() => openNoteDialog({ timeLog: active, mode: 'stop' })}
-                  title="Stop"
+                  className="bg-red-50 text-red-600 hover:bg-red-100"
                 >
-                  <Square className="size-3.5 fill-current text-foreground" />
-                </button>
+                  <Square className="size-3 fill-current" />
+                </IconButton>
+                <div className="min-w-0">
+                  <LiveTimer startedAt={active.startedAt} />
+                  <TimerSessionMeta startedAt={startedAt} running />
+                </div>
               </div>
             )
           }
 
           return (
-            <button
-              type="button"
-              className="rounded p-1 hover:bg-muted"
-              onClick={() => startTaskTimer.mutate(taskId)}
-              title="Start timer"
-              disabled={startTaskTimer.isPending}
-            >
-              <Play className="size-4 text-primary" />
-            </button>
+            <div className="flex h-full items-center gap-1.5">
+              <IconButton
+                title="Start timer"
+                onClick={() => startTaskTimer.mutate(taskId)}
+                disabled={startTaskTimer.isPending}
+                className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              >
+                <Play className="size-3.5 fill-current" />
+              </IconButton>
+              <TimerSessionMeta startedAt={startedAt} stoppedAt={stoppedAt} />
+            </div>
           )
         },
       },
       {
-        headerName: '',
-        width: 70,
+        headerName: 'Actions',
+        width: 128,
+        minWidth: 120,
         sortable: false,
-        cellRenderer: (p) =>
-          canEdit ? (
-            <button
-              type="button"
-              className="rounded p-1 hover:bg-muted"
-              onClick={() => openEdit(p.data)}
-            >
-              <Pencil className="size-4 text-muted-foreground" />
-            </button>
-          ) : null,
+        cellRenderer: (p) => {
+          const closed = isClosedTask(p.data)
+          return (
+            <div className="flex h-full items-center gap-1">
+              {canEdit && (
+                <IconButton
+                  title="Edit"
+                  onClick={() => openEdit(p.data)}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <Pencil className="size-3.5" />
+                </IconButton>
+              )}
+              {canComplete && !closed && (
+                <IconButton
+                  title="Mark Complete"
+                  onClick={() => setCompleteTask(p.data)}
+                  className="text-emerald-600 hover:bg-emerald-50"
+                >
+                  <CheckCircle2 className="size-3.5" />
+                </IconButton>
+              )}
+              {canIgnore && !closed && (
+                <IconButton
+                  title="Ignore Task"
+                  onClick={() => setIgnoreTask(p.data)}
+                  className="text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                >
+                  <Ban className="size-3.5" />
+                </IconButton>
+              )}
+            </div>
+          )
+        },
       },
     ],
-    [canEdit, active, startTaskTimer, openNoteDialog]
+    [canEdit, canComplete, canIgnore, active, startTaskTimer, openNoteDialog]
   )
 
   const emptyMasters = !clients.length || !stages.length
@@ -280,16 +663,22 @@ export default function TasksPage() {
   const activeServices = services
     .filter((s) => s.isActive !== false)
     .sort((a, b) => a.name.localeCompare(b.name))
-  const activeStages = stages
-    .filter((s) => s.isActive !== false)
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const editableStages = stages
+    .filter(
+      (s) =>
+        s.isActive !== false &&
+        s.systemKey !== 'completed' &&
+        s.systemKey !== 'ignored'
+    )
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name))
   const isSaving = create.isPending || update.isPending
+  const editingClosed = isClosedTask(editing)
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Task Master</h1>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">Task Master</h1>
           <p className="text-sm text-muted-foreground">
             Track work with timers — start/stop logging time against tasks.
           </p>
@@ -322,11 +711,19 @@ export default function TasksPage() {
         </div>
       )}
 
-      <FilterBar search={search} onSearchChange={setSearch} placeholder="Search title or client…">
+      <SuggestedTasksBanner />
+
+      <FilterBar search={search} onSearchChange={setSearch} placeholder="Search task ID, title, or client…">
+        <Select value={lifecycle} onChange={(e) => setLifecycle(e.target.value)} className="w-36">
+          <option value="open">Open</option>
+          <option value="completed">Completed</option>
+          <option value="ignored">Ignored</option>
+          <option value="all">All</option>
+        </Select>
         <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-40">
           <option value="">All statuses</option>
           {[...stages]
-            .sort((a, b) => a.name.localeCompare(b.name))
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name))
             .map((s) => (
               <option key={s._id} value={s._id}>
                 {s.name}
@@ -349,9 +746,38 @@ export default function TasksPage() {
               </option>
             ))}
         </Select>
+        <Input
+          type="date"
+          value={targetFrom}
+          onChange={(e) => setTargetFrom(e.target.value)}
+          className="w-36"
+          title="Target date from"
+          aria-label="Target date from"
+        />
+        <Input
+          type="date"
+          value={targetTo}
+          onChange={(e) => setTargetTo(e.target.value)}
+          className="w-36"
+          title="Target date to"
+          aria-label="Target date to"
+        />
       </FilterBar>
 
-      <DataTable columnDefs={columnDefs} rowData={data} loading={isLoading} height={520} />
+      <DataTable
+        columnDefs={columnDefs}
+        rowData={data}
+        loading={isLoading}
+        height={520}
+        rowHeight={52}
+        getRowClass={(params) => {
+          if (!params.data || isClosedTask(params.data)) return undefined
+          const tone = dueStatus(params.data.dueDate)
+          if (tone === 'overdue') return 'ag-row-overdue'
+          if (tone === 'today' || tone === 'soon') return 'ag-row-due-soon'
+          return undefined
+        }}
+      />
 
       <Sheet
         open={sheetOpen}
@@ -363,16 +789,45 @@ export default function TasksPage() {
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" form={FORM_ID} disabled={isSaving}>
-              {editing ? 'Update Task' : 'Create Task'}
-            </Button>
+            {!editingClosed && (
+              <Button type="submit" form={FORM_ID} disabled={isSaving}>
+                {editing ? 'Update Task' : 'Create Task'}
+              </Button>
+            )}
           </>
         }
       >
         <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-          <FormField label="Title" htmlFor="title" error={form.formState.errors.title?.message}>
-            <Input id="title" {...form.register('title')} />
-          </FormField>
+          {editingClosed && (
+            <div className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+              This task is{' '}
+              <span className="font-medium text-foreground">
+                {editing.completedAt ? 'completed' : 'ignored'}
+              </span>
+              {editing.completedAt && (
+                <> on {format(new Date(editing.completedAt), 'dd/MM/yyyy')}</>
+              )}
+              {editing.ignoredAt && (
+                <>
+                  {' '}
+                  on {format(new Date(editing.ignoredAt), 'dd/MM/yyyy')}
+                  {editing.ignoreRemarks ? ` — ${editing.ignoreRemarks}` : ''}
+                </>
+              )}
+              . Status and timer are locked.
+            </div>
+          )}
+
+          {editing?.taskCode && (
+            <FormField label="Task ID" htmlFor="taskCodeDisplay">
+              <Input
+                id="taskCodeDisplay"
+                value={editing.taskCode}
+                readOnly
+                className="bg-muted font-mono font-bold text-indigo-700"
+              />
+            </FormField>
+          )}
 
           <FormRow>
             <FormField
@@ -404,6 +859,88 @@ export default function TasksPage() {
               </Select>
             </FormField>
           </FormRow>
+
+          {serviceId && (
+            <CompliancePeriodField
+              compliancePeriodType={selectedService?.compliancePeriodType}
+              value={compliancePeriodInput}
+              onChange={(v) =>
+                form.setValue('compliancePeriodInput', v, { shouldValidate: true })
+              }
+              error={form.formState.errors.compliancePeriodInput?.message}
+            />
+          )}
+
+          {showRecurringFields && (
+            <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+              <FormField label="Is this a recurring task?" htmlFor="isRecurring">
+                <Select
+                  id="isRecurring"
+                  value={isRecurring ? 'yes' : 'no'}
+                  onChange={(e) => {
+                    const yes = e.target.value === 'yes'
+                    form.setValue('isRecurring', yes, { shouldValidate: true })
+                    if (yes && !form.getValues('recurrenceStartDate')) {
+                      form.setValue(
+                        'recurrenceStartDate',
+                        form.getValues('taskReceiveDate') ||
+                          new Date().toISOString().slice(0, 10)
+                      )
+                    }
+                    if (!yes) form.setValue('alertId', '')
+                  }}
+                >
+                  <option value="no">No — one-time task</option>
+                  <option value="yes">Yes — set up recurrence</option>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Asked only the first time this client + service combination is created.
+                </p>
+              </FormField>
+
+              {isRecurring && (
+                <>
+                  <FormField
+                    label="Frequency"
+                    htmlFor="recurrenceFrequency"
+                    error={form.formState.errors.recurrenceFrequency?.message}
+                  >
+                    <Select id="recurrenceFrequency" {...form.register('recurrenceFrequency')}>
+                      <option value="">Select frequency…</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="quarterly">Quarterly</option>
+                      <option value="yearly">Yearly</option>
+                    </Select>
+                  </FormField>
+                  <AlertField
+                    value={form.watch('alertId')}
+                    onChange={(id) => form.setValue('alertId', id)}
+                  />
+                  <FormRow>
+                    <FormField
+                      label="Start Date"
+                      htmlFor="recurrenceStartDate"
+                      error={form.formState.errors.recurrenceStartDate?.message}
+                    >
+                      <Input
+                        id="recurrenceStartDate"
+                        type="date"
+                        {...form.register('recurrenceStartDate')}
+                      />
+                    </FormField>
+                    <FormField label="End Date" htmlFor="recurrenceEndDate">
+                      <Input
+                        id="recurrenceEndDate"
+                        type="date"
+                        {...form.register('recurrenceEndDate')}
+                      />
+                      <p className="text-xs text-muted-foreground">Optional</p>
+                    </FormField>
+                  </FormRow>
+                </>
+              )}
+            </div>
+          )}
 
           <FormRow>
             <FormField
@@ -445,13 +982,23 @@ export default function TasksPage() {
               htmlFor="stageId"
               error={form.formState.errors.stageId?.message}
             >
-              <Select id="stageId" {...form.register('stageId')}>
+              <Select
+                id="stageId"
+                value={form.watch('stageId')}
+                onChange={(e) => handleStageChange(e.target.value)}
+                disabled={editingClosed}
+              >
                 <option value="">Select status…</option>
-                {activeStages.map((s) => (
+                {editableStages.map((s) => (
                   <option key={s._id} value={s._id}>
                     {s.name}
                   </option>
                 ))}
+                {editingClosed && editing?.stageId && (
+                  <option value={editing.stageId._id || editing.stageId}>
+                    {editing.stageId?.name || 'Closed'}
+                  </option>
+                )}
               </Select>
             </FormField>
             <FormField label="Priority" htmlFor="priority">
@@ -461,14 +1008,62 @@ export default function TasksPage() {
                 <option value="high">High</option>
               </Select>
             </FormField>
-            <FormField
-              label="Due Date"
-              htmlFor="dueDate"
-              error={form.formState.errors.dueDate?.message}
-            >
-              <Input id="dueDate" type="date" {...form.register('dueDate')} />
-            </FormField>
           </div>
+
+          {editing?.createdAt && (
+            <FormField label="Task Create Date" htmlFor="taskCreateDate">
+              <Input
+                id="taskCreateDate"
+                value={format(new Date(editing.createdAt), 'dd/MM/yyyy')}
+                readOnly
+                className="bg-muted"
+              />
+            </FormField>
+          )}
+
+          <FormRow>
+            <FormField
+              label="Task Receive Date"
+              htmlFor="taskReceiveDate"
+              error={form.formState.errors.taskReceiveDate?.message}
+            >
+              <Input id="taskReceiveDate" type="date" {...form.register('taskReceiveDate')} />
+            </FormField>
+            <FormField label="Query Sent Date" htmlFor="querySentDate">
+              <Input id="querySentDate" type="date" {...form.register('querySentDate')} />
+            </FormField>
+          </FormRow>
+
+          <FormRow>
+            <FormField label="Reply Received Date" htmlFor="replyReceivedDate">
+              <Input id="replyReceivedDate" type="date" {...form.register('replyReceivedDate')} />
+            </FormField>
+            <FormField
+              label="Target Date"
+              htmlFor="targetDate"
+              error={form.formState.errors.targetDate?.message}
+            >
+              <Input
+                id="targetDate"
+                type="date"
+                readOnly={!canEditTarget}
+                className={!canEditTarget ? 'bg-muted' : ''}
+                {...form.register('targetDate')}
+              />
+              {!canEditTarget && (
+                <p className="text-xs text-muted-foreground">
+                  Auto-calculated from receive date + service turnaround.
+                </p>
+              )}
+            </FormField>
+          </FormRow>
+
+          <FormField label="Title" htmlFor="titlePreview">
+            <Input id="titlePreview" value={titlePreview} readOnly className="bg-muted" />
+            <p className="text-xs text-muted-foreground">
+              Auto-generated as Client - Service - compliance period
+            </p>
+          </FormField>
 
           <FormField
             label="Budget Hours"
@@ -492,10 +1087,67 @@ export default function TasksPage() {
           </FormField>
 
           <FormField label="Remarks" htmlFor="description">
-            <Textarea id="description" rows={3} {...form.register('description')} />
+            <Controller
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <MentionField
+                  id="description"
+                  multiline
+                  rows={3}
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  ref={field.ref}
+                  users={assignees}
+                  placeholder="Type @ to tag a teammate"
+                />
+              )}
+            />
+            <p className="text-xs text-muted-foreground">
+              Type @ to tag someone by name or email. Tagged people can be emailed later.
+            </p>
           </FormField>
+
+          <ReviewPointsField
+            control={form.control}
+            register={form.register}
+            errors={form.formState.errors}
+            disabled={editing ? !canEdit : !canAdd}
+            history={editing?.reviewPointsHistory || []}
+            users={assignees}
+          />
         </form>
       </Sheet>
+
+      <CompleteTaskDialog
+        open={!!completeTask}
+        task={completeTask}
+        loading={complete.isPending}
+        onCancel={() => setCompleteTask(null)}
+        onConfirm={async ({ completionDate }) => {
+          await complete.mutateAsync({ id: completeTask._id, completionDate })
+          setCompleteTask(null)
+        }}
+      />
+
+      <IgnoreTaskDialog
+        open={!!ignoreTask}
+        task={ignoreTask}
+        loading={ignore.isPending}
+        onCancel={() => setIgnoreTask(null)}
+        onConfirm={async ({ ignoreDate, remarks }) => {
+          await ignore.mutateAsync({ id: ignoreTask._id, ignoreDate, remarks })
+          setIgnoreTask(null)
+        }}
+      />
+
+      <StatusDatePromptDialog
+        open={!!statusDatePrompt}
+        type={statusDatePrompt?.type}
+        onCancel={() => setStatusDatePrompt(null)}
+        onConfirm={applyStatusDatePrompt}
+      />
     </div>
   )
 }

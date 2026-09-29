@@ -35,11 +35,11 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-surface px-4 py-10">
-      <div className="w-full max-w-md rounded-lg border border-border bg-white p-8 shadow-sm">
+    <div className="flex min-h-full items-center justify-center bg-gradient-to-br from-indigo-50 via-slate-50 to-sky-50 px-4 py-10">
+      <div className="w-full max-w-md rounded-xl border border-indigo-100 bg-white p-8 shadow-md">
         <div className="mb-8 flex flex-col items-center text-center">
           <Logo size="xl" showText={false} className="mb-4" />
-          <h1 className="text-2xl font-semibold text-foreground">SimplyTrack</h1>
+          <h1 className="text-2xl font-bold text-foreground">SimplyTrack</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Register your organization. You&apos;ll be the Owner.
           </p>

@@ -2,11 +2,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 
-export function useStages(search = '') {
+export function useStages(search = '', type = 'workflow') {
   return useQuery({
-    queryKey: ['stages', search],
+    queryKey: ['stages', type, search],
     queryFn: async () => {
-      const { data } = await api.get('/stages', { params: { search } })
+      const { data } = await api.get('/stages', { params: { search, type } })
       return data.data
     },
   })
@@ -35,6 +35,10 @@ export function useStageMutations() {
   })
 
   return { create, update, remove }
+}
+
+export function useClosingNoteStages(search = '') {
+  return useStages(search, 'closing_note')
 }
 
 export function useServices(search = '') {
@@ -185,4 +189,48 @@ export function useUserMutations() {
   })
 
   return { create, update, updateStatus }
+}
+
+export function useAlerts() {
+  return useQuery({
+    queryKey: ['alerts'],
+    queryFn: async () => {
+      const { data } = await api.get('/alerts')
+      return data.data
+    },
+  })
+}
+
+export function useAlertMutations() {
+  const qc = useQueryClient()
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['alerts'] })
+
+  const create = useMutation({
+    mutationFn: (body) => api.post('/alerts', body),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Alert created')
+      invalidate()
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to create alert'),
+  })
+
+  const update = useMutation({
+    mutationFn: ({ id, ...body }) => api.patch(`/alerts/${id}`, body),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Alert updated')
+      invalidate()
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to update alert'),
+  })
+
+  const remove = useMutation({
+    mutationFn: (id) => api.delete(`/alerts/${id}`),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Alert deleted')
+      invalidate()
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete alert'),
+  })
+
+  return { create, update, remove }
 }

@@ -14,6 +14,7 @@ import ClientsPage from '@/pages/clients/ClientsPage'
 import ProjectsPage from '@/pages/projects/ProjectsPage'
 import UsersPage from '@/pages/users/UsersPage'
 import TasksPage from '@/pages/tasks/TasksPage'
+import PermissionsPage from '@/pages/permissions/PermissionsPage'
 import { TASK_PHASE } from '@/config/taskModule'
 import PlaceholderPage from '@/pages/PlaceholderPage'
 
@@ -51,7 +52,7 @@ export default function App() {
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/services" element={<ServicesPage />} />
               <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
-              <Route path="/permissions" element={<PlaceholderPage title="Permissions" />} />
+              <Route path="/permissions" element={<PermissionsPage />} />
               <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
             </Route>
           </Route>

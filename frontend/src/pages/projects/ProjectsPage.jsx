@@ -128,7 +128,7 @@ export default function ProjectsPage() {
 
   const columnDefs = useMemo(
     () => [
-      { field: 'name', headerName: 'Project Name', flex: 2 },
+      { field: 'name', headerName: 'Project Name', flex: 2, cellClass: 'cell-emphasis' },
       {
         headerName: 'Client',
         flex: 1.5,
@@ -162,8 +162,9 @@ export default function ProjectsPage() {
         field: 'estimatedTime',
         headerName: 'Estimated Time',
         width: 140,
-        cellClass: 'tabular-nums',
-        valueFormatter: (p) => `${p.value ?? 0}h`,
+        cellRenderer: (p) => (
+          <span className="font-bold tabular-nums text-slate-800">{p.value ?? 0}h</span>
+        ),
       },
       {
         field: 'isActive',
@@ -202,7 +203,7 @@ export default function ProjectsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Project Master</h1>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">Project Master</h1>
           <p className="text-sm text-muted-foreground">
             Link projects to clients and assign team members.
           </p>

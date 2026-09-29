@@ -6,7 +6,15 @@ import 'ag-grid-community/styles/ag-theme-quartz.css'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
-export function DataTable({ columnDefs, rowData, loading, onRowClicked, height = 480 }) {
+export function DataTable({
+  columnDefs,
+  rowData,
+  loading,
+  onRowClicked,
+  getRowClass,
+  height = 480,
+  rowHeight = 38,
+}) {
   const defaultColDef = useMemo(
     () => ({
       sortable: true,
@@ -18,8 +26,12 @@ export function DataTable({ columnDefs, rowData, loading, onRowClicked, height =
   )
 
   return (
-    <div className="ag-theme-quartz w-full rounded-lg border border-border overflow-hidden" style={{ height }}>
+    <div
+      className="ag-theme-quartz w-full overflow-hidden rounded-xl border border-border shadow-sm"
+      style={{ height }}
+    >
       <AgGridReact
+        theme="legacy"
         columnDefs={columnDefs}
         rowData={rowData}
         defaultColDef={defaultColDef}
@@ -29,8 +41,9 @@ export function DataTable({ columnDefs, rowData, loading, onRowClicked, height =
         paginationPageSizeSelector={[25, 50, 100]}
         suppressCellFocus
         onRowClicked={onRowClicked}
-        rowHeight={38}
-        headerHeight={40}
+        getRowClass={getRowClass}
+        rowHeight={rowHeight}
+        headerHeight={42}
         overlayLoadingTemplate='<span class="text-sm text-muted-foreground">Loading…</span>'
         overlayNoRowsTemplate='<span class="text-sm text-muted-foreground">No rows to show</span>'
       />

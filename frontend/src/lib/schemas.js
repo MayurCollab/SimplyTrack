@@ -1,6 +1,16 @@
 import { z } from 'zod'
 import { isValidEmail } from '@/lib/email'
 
+const COMPLIANCE_PERIOD_VALUES = [
+  'quarter_end',
+  'year_end',
+  'tax_year',
+  'payroll_month',
+  'bookkeeping_month',
+  'cis_month',
+  'due_date',
+]
+
 const optionalEmail = z
   .string()
   .trim()
@@ -42,6 +52,8 @@ export const stageSchema = z.object({
 export const serviceSchema = z.object({
   name: z.string().trim().min(1, 'Name is required'),
   estimatedHours: z.coerce.number().min(0.01, 'Must be at least 0.01 hours'),
+  turnaroundBusinessDays: z.coerce.number().int().min(0).default(3),
+  compliancePeriodType: z.enum(COMPLIANCE_PERIOD_VALUES).default('due_date'),
   isActive: z.boolean().optional().default(true),
 })
 
@@ -67,18 +79,51 @@ export const userSchema = z
     path: ['reportingManagerId'],
   })
 
-export const taskSchema = z.object({
-  title: z.string().trim().min(1, 'Title is required'),
+export const reviewPointSchema = z.object({
+  _id: z.string().optional(),
   description: z.string().optional().default(''),
-  clientId: z.string().min(1, 'Client is required'),
-  serviceId: z.string().min(1, 'Service is required'),
-  assigneeId: z.string().min(1, 'Assignee is required'),
-  helpingMemberId: z.string().optional().default(''),
-  stageId: z.string().min(1, 'Status is required'),
-  priority: z.enum(['low', 'medium', 'high']).default('medium'),
-  dueDate: z.string().min(1, 'Due date is required'),
-  budgetHours: z.coerce.number().min(0.01, 'Budget hours must be at least 0.01'),
 })
+
+export const taskSchema = z
+  .object({
+    description: z.string().optional().default(''),
+    reviewPoints: z.array(reviewPointSchema).optional().default([]),
+    clientId: z.string().min(1, 'Client is required'),
+    serviceId: z.string().min(1, 'Service is required'),
+    assigneeId: z.string().min(1, 'Assignee is required'),
+    helpingMemberId: z.string().optional().default(''),
+    stageId: z.string().min(1, 'Status is required'),
+    priority: z.enum(['low', 'medium', 'high']).default('medium'),
+    compliancePeriodInput: z.string().min(1, 'Compliance period is required'),
+    taskReceiveDate: z.string().min(1, 'Task receive date is required'),
+    querySentDate: z.string().optional().default(''),
+    replyReceivedDate: z.string().optional().default(''),
+    targetDate: z.string().optional().default(''),
+    budgetHours: z.coerce.number().min(0.01, 'Budget hours must be at least 0.01'),
+    isRecurring: z.boolean().optional().default(false),
+    recurrenceFrequency: z.string().optional().default(''),
+    recurrenceStartDate: z.string().optional().default(''),
+    recurrenceEndDate: z.string().optional().default(''),
+    alertId: z.string().optional().default(''),
+  })
+  .superRefine((data, ctx) => {
+    if (data.isRecurring) {
+      if (!['monthly', 'quarterly', 'yearly'].includes(data.recurrenceFrequency)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['recurrenceFrequency'],
+          message: 'Frequency is required',
+        })
+      }
+      if (!data.recurrenceStartDate) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['recurrenceStartDate'],
+          message: 'Start date is required',
+        })
+      }
+    }
+  })
 
 export const projectSchema = z.object({
   name: z.string().trim().min(1, 'Project name is required'),

@@ -86,17 +86,25 @@ export default function UsersPage() {
 
   const columnDefs = useMemo(
     () => [
-      { field: 'name', headerName: 'Name', flex: 1.5 },
+      { field: 'name', headerName: 'Name', flex: 1.5, cellClass: 'cell-emphasis' },
       { field: 'email', headerName: 'Email', flex: 2 },
       {
         field: 'role',
         headerName: 'Role',
         width: 110,
-        cellRenderer: (p) => (
-          <Badge variant="outline" className="capitalize">
-            {p.value}
-          </Badge>
-        ),
+        cellRenderer: (p) => {
+          const variant =
+            p.value === 'owner' || p.value === 'super_admin'
+              ? 'indigo'
+              : p.value === 'manager'
+                ? 'sky'
+                : 'outline'
+          return (
+            <Badge variant={variant} className="font-bold capitalize">
+              {p.value?.replace('_', ' ')}
+            </Badge>
+          )
+        },
       },
       {
         field: 'reportingManagerId',
@@ -139,7 +147,7 @@ export default function UsersPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">User Master</h1>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">User Master</h1>
           <p className="text-sm text-muted-foreground">Add managers and staff - login is passwordless via OTP.</p>
         </div>
         {canAdd && (

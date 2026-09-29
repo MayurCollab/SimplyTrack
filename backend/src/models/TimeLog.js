@@ -33,6 +33,11 @@ const timeLogSchema = new mongoose.Schema(
     },
     correctedAt: { type: Date, default: null },
     closingNote: { type: String, default: '' },
+    closingNoteStageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'StageMaster',
+      default: null,
+    },
     autoClosedBySwitch: { type: Boolean, default: false },
     pendingClosingNote: { type: Boolean, default: false },
   },

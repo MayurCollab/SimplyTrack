@@ -3,7 +3,9 @@ const Task = require('../models/Task');
 const { computeDurationMinutes, effectiveDurationMinutes } = require('./timeCalc');
 
 async function getOpenSession(userId) {
-  return TimeLog.findOne({ userId, stoppedAt: null }).populate('taskId', 'title');
+  return TimeLog.findOne({ userId, stoppedAt: null })
+    .populate('taskId', 'title')
+    .populate('closingNoteStageId', 'name stageType');
 }
 
 async function getPendingNoteSession(userId) {
@@ -11,7 +13,9 @@ async function getPendingNoteSession(userId) {
     userId,
     pendingClosingNote: true,
     stoppedAt: { $ne: null },
-  }).populate('taskId', 'title');
+  })
+    .populate('taskId', 'title')
+    .populate('closingNoteStageId', 'name stageType');
 }
 
 /**
@@ -52,7 +56,7 @@ async function recomputeTaskLoggedMinutes(taskId) {
   return total;
 }
 
-async function completeClosingNote(logId, userId, closingNote) {
+async function completeClosingNote(logId, userId, closingNote, closingNoteStageId) {
   const log = await TimeLog.findOne({ _id: logId, userId });
   if (!log) {
     const err = new Error('Time log not found');
@@ -66,6 +70,7 @@ async function completeClosingNote(logId, userId, closingNote) {
   }
 
   log.closingNote = closingNote;
+  log.closingNoteStageId = closingNoteStageId || null;
   log.pendingClosingNote = false;
   await log.save();
 

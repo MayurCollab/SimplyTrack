@@ -35,16 +35,30 @@ export function TimerWidget() {
       className={cn(
         'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm',
         active.type === 'break' && breakOverAllowance
-          ? 'border-amber-300 bg-amber-50 text-amber-800'
-          : 'border-border bg-surface text-foreground'
+          ? 'border-amber-300 bg-amber-50 text-amber-900'
+          : active.type === 'break'
+            ? 'border-amber-200 bg-amber-50 text-amber-800'
+            : active.type === 'training'
+              ? 'border-violet-200 bg-violet-50 text-violet-800'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
       )}
     >
       <span className="relative flex size-2">
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
-        <span className="relative inline-flex size-2 rounded-full bg-green-500" />
+        <span
+          className={cn(
+            'absolute inline-flex size-full animate-ping rounded-full opacity-75',
+            active.type === 'break' ? 'bg-amber-400' : active.type === 'training' ? 'bg-violet-400' : 'bg-emerald-400'
+          )}
+        />
+        <span
+          className={cn(
+            'relative inline-flex size-2 rounded-full',
+            active.type === 'break' ? 'bg-amber-500' : active.type === 'training' ? 'bg-violet-500' : 'bg-emerald-500'
+          )}
+        />
       </span>
-      <span className="max-w-[140px] truncate font-medium">{label}</span>
-      <span className="tabular-nums font-semibold">{formatElapsed(active.startedAt, now)}</span>
+      <span className="max-w-[140px] truncate font-semibold">{label}</span>
+      <span className="tabular-nums font-bold">{formatElapsed(active.startedAt, now)}</span>
       <button
         type="button"
         onClick={handleStop}

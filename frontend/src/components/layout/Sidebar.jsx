@@ -46,24 +46,36 @@ function NavItem({ to, label, icon: Icon, collapsed, showTooltip }) {
           cn(
             'relative flex items-center overflow-hidden rounded-lg text-sm font-medium',
             `transition-all duration-300 ${EASE}`,
-            collapsed ? 'justify-center px-2 py-2' : 'gap-2.5 px-3 py-2',
+            collapsed ? 'justify-center px-2 py-2' : 'gap-2.5 px-2.5 py-2',
             isActive
-              ? 'bg-primary/10 text-primary shadow-sm'
-              : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+              ? 'bg-primary text-white shadow-sm shadow-indigo-500/25'
+              : 'text-slate-500 hover:bg-white hover:text-slate-900 hover:shadow-sm'
           )
         }
       >
-        <Icon className="size-4 shrink-0" />
-        <span
-          className={cn(
-            'truncate whitespace-nowrap',
-            `transition-[max-width,opacity,margin] duration-300 ${EASE}`,
-            collapsed ? 'max-w-0 opacity-0' : 'max-w-[11rem] opacity-100'
-          )}
-          aria-hidden={collapsed}
-        >
-          {label}
-        </span>
+        {({ isActive }) => (
+          <>
+            <span
+              className={cn(
+                'inline-flex size-7 shrink-0 items-center justify-center rounded-md',
+                isActive ? 'bg-white/15 text-white' : 'text-slate-400 group-hover:text-primary'
+              )}
+            >
+              <Icon className="size-4" />
+            </span>
+            <span
+              className={cn(
+                'truncate whitespace-nowrap',
+                `transition-[max-width,opacity,margin] duration-300 ${EASE}`,
+                collapsed ? 'max-w-0 opacity-0' : 'max-w-[11rem] opacity-100',
+                isActive ? 'font-semibold' : 'font-medium'
+              )}
+              aria-hidden={collapsed}
+            >
+              {label}
+            </span>
+          </>
+        )}
       </NavLink>
 
       {showTooltip && (
@@ -71,7 +83,7 @@ function NavItem({ to, label, icon: Icon, collapsed, showTooltip }) {
           role="tooltip"
           className={cn(
             'pointer-events-none absolute left-[calc(100%+0.5rem)] top-1/2 z-50 -translate-y-1/2',
-            'whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-white shadow-lg',
+            'whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg',
             `opacity-0 scale-95 transition-all duration-200 ${EASE}`,
             'group-hover:opacity-100 group-hover:scale-100'
           )}
@@ -135,14 +147,14 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-white shadow-sm',
+        'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-indigo-100 bg-[#f3f5ff]',
         `transition-[width] duration-300 ${EASE}`,
         collapsed ? 'w-[5.25rem]' : 'w-60'
       )}
     >
       <div
         className={cn(
-          'flex h-14 shrink-0 items-center overflow-hidden border-b border-border',
+          'flex h-14 shrink-0 items-center overflow-hidden border-b border-indigo-100/80 bg-white/70',
           `transition-[padding] duration-300 ${EASE}`,
           collapsed ? 'justify-between gap-1 px-2' : 'justify-between px-4'
         )}
@@ -156,8 +168,8 @@ export function Sidebar() {
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           className={cn(
             'inline-flex size-8 shrink-0 items-center justify-center rounded-lg',
-            `text-muted-foreground transition-all duration-300 ${EASE}`,
-            'hover:bg-muted hover:text-foreground',
+            `text-slate-400 transition-all duration-300 ${EASE}`,
+            'hover:bg-indigo-50 hover:text-primary',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
             'disabled:pointer-events-none disabled:opacity-60'
           )}
@@ -172,7 +184,7 @@ export function Sidebar() {
 
       <nav
         className={cn(
-          'sidebar-nav flex-1 space-y-1 overflow-x-hidden p-3',
+          'sidebar-nav flex-1 space-y-1.5 overflow-x-hidden p-3',
           `transition-[padding] duration-300 ${EASE}`,
           isAnimating ? 'overflow-y-hidden' : 'overflow-y-auto'
         )}
@@ -187,15 +199,15 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="flex h-[4.75rem] shrink-0 items-center border-t border-border px-3">
+      <div className="flex h-[4.75rem] shrink-0 items-center border-t border-indigo-100/80 bg-white/50 px-3">
         <div
           className={cn(
-            'group relative flex h-[3.25rem] w-full items-center overflow-hidden rounded-lg bg-muted/40 px-2',
+            'group relative flex h-[3.25rem] w-full items-center overflow-hidden rounded-lg bg-white px-2 shadow-sm ring-1 ring-indigo-100',
             `transition-[gap] duration-300 ${EASE}`,
             collapsed ? 'justify-center' : 'gap-3'
           )}
         >
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary ring-2 ring-white">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white shadow-sm shadow-indigo-500/30">
             {userInitials}
           </div>
 
@@ -209,8 +221,8 @@ export function Sidebar() {
             )}
             aria-hidden={collapsed}
           >
-            <p className="truncate text-sm font-medium text-foreground">{user?.name}</p>
-            <p className="truncate text-xs text-muted-foreground">{user?.organizationName}</p>
+            <p className="truncate text-sm font-semibold text-slate-900">{user?.name}</p>
+            <p className="truncate text-xs text-slate-500">{user?.organizationName}</p>
           </div>
 
           {showTooltips && (
@@ -218,7 +230,7 @@ export function Sidebar() {
               role="tooltip"
               className={cn(
                 'pointer-events-none absolute left-[calc(100%+0.5rem)] top-1/2 z-50 -translate-y-1/2',
-                'whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-white shadow-lg',
+                'whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg',
                 `opacity-0 scale-95 transition-all duration-200 ${EASE}`,
                 'group-hover:opacity-100 group-hover:scale-100'
               )}

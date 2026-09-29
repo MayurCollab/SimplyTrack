@@ -1,14 +1,24 @@
 const TimeLog = require('../models/TimeLog');
+const StageMaster = require('../models/StageMaster');
 const Settings = require('../models/Settings');
 const { orgFilter } = require('../utils/orgScope');
 const {
   getOpenSession,
   getPendingNoteSession,
-  forceStopOpenSession,
   recomputeTaskLoggedMinutes,
   completeClosingNote,
 } = require('../services/timer');
 const { computeDurationMinutes, effectiveDurationMinutes } = require('../services/timeCalc');
+
+async function resolveClosingNoteStage(req, closingNoteStageId) {
+  const stage = await StageMaster.findOne({
+    _id: closingNoteStageId,
+    organizationId: orgFilter(req.user).organizationId,
+    stageType: 'closing_note',
+    isActive: true,
+  }).lean();
+  return stage;
+}
 
 async function getActive(req, res, next) {
   try {
@@ -57,9 +67,10 @@ async function getActive(req, res, next) {
 
 async function submitPendingNote(req, res, next) {
   try {
-    const { closingNote, timeLogId } = req.body;
-    if (!closingNote?.trim() || closingNote.trim().length < 15) {
-      return res.status(400).json({ message: 'Closing note must be at least 15 characters' });
+    const { closingNote, closingNoteStageId, timeLogId } = req.body;
+
+    if (!closingNote?.trim() || closingNote.trim().length < 10) {
+      return res.status(400).json({ message: 'Closing note must be at least 10 characters' });
     }
 
     const pending = timeLogId
@@ -70,7 +81,21 @@ async function submitPendingNote(req, res, next) {
       return res.status(404).json({ message: 'No pending closing note' });
     }
 
-    const log = await completeClosingNote(pending._id, req.user._id, closingNote.trim());
+    let closingStageId = null;
+    if (pending.type !== 'break') {
+      const closingStage = await resolveClosingNoteStage(req, closingNoteStageId);
+      if (!closingStage) {
+        return res.status(400).json({ message: 'Invalid closing note stage' });
+      }
+      closingStageId = closingStage._id;
+    }
+
+    const log = await completeClosingNote(
+      pending._id,
+      req.user._id,
+      closingNote.trim(),
+      closingStageId
+    );
     res.json({ data: log, message: 'Closing note saved' });
   } catch (err) {
     next(err);
@@ -95,10 +120,12 @@ async function startBreak(req, res, next) {
       if (open.type === 'break') {
         return res.status(400).json({ message: 'Break already running' });
       }
-      const stopped = await forceStopOpenSession(userId, { requireNote: true });
+      const activeSession = await TimeLog.findById(open._id)
+        .populate('taskId', 'title taskCode')
+        .lean();
       return res.status(409).json({
-        message: 'Previous session stopped - add a closing note before starting break',
-        data: { pendingNote: stopped },
+        message: 'Add a closing note for your current session before starting break',
+        data: { activeSession },
       });
     }
 
@@ -118,8 +145,9 @@ async function startBreak(req, res, next) {
 async function stopBreak(req, res, next) {
   try {
     const { closingNote } = req.body;
-    if (!closingNote?.trim() || closingNote.trim().length < 15) {
-      return res.status(400).json({ message: 'Closing note must be at least 15 characters' });
+
+    if (!closingNote?.trim() || closingNote.trim().length < 10) {
+      return res.status(400).json({ message: 'Closing note must be at least 10 characters' });
     }
 
     const open = await TimeLog.findOne({
@@ -135,7 +163,12 @@ async function stopBreak(req, res, next) {
         pendingClosingNote: true,
       });
       if (pending) {
-        const log = await completeClosingNote(pending._id, req.user._id, closingNote.trim());
+        const log = await completeClosingNote(
+          pending._id,
+          req.user._id,
+          closingNote.trim(),
+          null
+        );
         return res.json({ data: log, message: 'Break stopped' });
       }
       return res.status(404).json({ message: 'No break in progress' });
@@ -145,6 +178,7 @@ async function stopBreak(req, res, next) {
     open.stoppedAt = stoppedAt;
     open.systemDurationMinutes = computeDurationMinutes(open.startedAt, stoppedAt);
     open.closingNote = closingNote.trim();
+    open.closingNoteStageId = null;
     open.pendingClosingNote = false;
     await open.save();
 
@@ -172,10 +206,12 @@ async function startTraining(req, res, next) {
       if (open.type === 'training') {
         return res.status(400).json({ message: 'Training already running' });
       }
-      const stopped = await forceStopOpenSession(userId, { requireNote: true });
+      const activeSession = await TimeLog.findById(open._id)
+        .populate('taskId', 'title taskCode')
+        .lean();
       return res.status(409).json({
-        message: 'Previous session stopped - add a closing note before starting training',
-        data: { pendingNote: stopped },
+        message: 'Add a closing note for your current session before starting training',
+        data: { activeSession },
       });
     }
 
@@ -194,9 +230,14 @@ async function startTraining(req, res, next) {
 
 async function stopTraining(req, res, next) {
   try {
-    const { closingNote } = req.body;
-    if (!closingNote?.trim() || closingNote.trim().length < 15) {
-      return res.status(400).json({ message: 'Closing note must be at least 15 characters' });
+    const { closingNote, closingNoteStageId } = req.body;
+    const closingStage = await resolveClosingNoteStage(req, closingNoteStageId);
+    if (!closingStage) {
+      return res.status(400).json({ message: 'Invalid closing note stage' });
+    }
+
+    if (!closingNote?.trim() || closingNote.trim().length < 10) {
+      return res.status(400).json({ message: 'Closing note must be at least 10 characters' });
     }
 
     const open = await TimeLog.findOne({
@@ -212,7 +253,12 @@ async function stopTraining(req, res, next) {
         pendingClosingNote: true,
       });
       if (pending) {
-        const log = await completeClosingNote(pending._id, req.user._id, closingNote.trim());
+        const log = await completeClosingNote(
+          pending._id,
+          req.user._id,
+          closingNote.trim(),
+          closingStage._id
+        );
         return res.json({ data: log, message: 'Training stopped' });
       }
       return res.status(404).json({ message: 'No training in progress' });
@@ -222,6 +268,7 @@ async function stopTraining(req, res, next) {
     open.stoppedAt = stoppedAt;
     open.systemDurationMinutes = computeDurationMinutes(open.startedAt, stoppedAt);
     open.closingNote = closingNote.trim();
+    open.closingNoteStageId = closingStage._id;
     open.pendingClosingNote = false;
     await open.save();
 

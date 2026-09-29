@@ -2,16 +2,16 @@
 
 @theme {
   --color-background: #ffffff;
-  --color-surface: #f8f9fa;
-  --color-muted: #f1f3f5;
-  --color-border: #e5e7eb;
-  --color-foreground: #111827;
-  --color-muted-foreground: #6b7280;
-  --color-primary: #4f46e5;
+  --color-surface: #f4f6fb;
+  --color-muted: #eef2f7;
+  --color-border: #e2e8f0;
+  --color-foreground: #0f172a;
+  --color-muted-foreground: #64748b;
+  --color-primary: #4b4dff;
   --color-primary-foreground: #ffffff;
   --color-destructive: #ef4444;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
   --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --radius-lg: 0.5rem;
 }
@@ -49,14 +49,53 @@ body {
 
 .ag-theme-quartz {
   --ag-background-color: #ffffff;
-  --ag-header-background-color: #f8f9fa;
-  --ag-odd-row-background-color: #f8f9fa;
-  --ag-row-hover-color: #f1f3f5;
-  --ag-border-color: #e5e7eb;
+  --ag-header-background-color: #eef2ff;
+  --ag-header-foreground-color: #312e81;
+  --ag-odd-row-background-color: #f8fafc;
+  --ag-row-hover-color: #eef2ff;
+  --ag-selected-row-background-color: #e0e7ff;
+  --ag-border-color: #e2e8f0;
   --ag-font-family: Inter, system-ui, sans-serif;
   --ag-font-size: 13px;
   --ag-header-height: 40px;
   --ag-row-height: 38px;
+  --ag-cell-horizontal-padding: 12px;
+}
+
+.ag-theme-quartz .ag-header {
+  border-bottom: 1px solid #c7d2fe;
+}
+
+.ag-theme-quartz .ag-header-cell-text {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ag-theme-quartz .ag-cell {
+  display: flex;
+  align-items: center;
+  color: #334155;
+}
+
+.ag-theme-quartz .cell-emphasis,
+.ag-theme-quartz .ag-cell.cell-emphasis {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.ag-theme-quartz .ag-row-overdue {
+  background-color: #fef2f2 !important;
+}
+
+.ag-theme-quartz .ag-row-due-soon {
+  background-color: #fffbeb !important;
+}
+
+.ag-theme-quartz .ag-paging-panel {
+  color: #475569;
+  border-top: 1px solid #e2e8f0;
 }
 
 @keyframes modal-backdrop-in {

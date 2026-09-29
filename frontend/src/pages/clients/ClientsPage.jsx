@@ -81,7 +81,7 @@ export default function ClientsPage() {
 
   const columnDefs = useMemo(
     () => [
-      { field: 'organizationName', headerName: 'Organization', flex: 2 },
+      { field: 'organizationName', headerName: 'Organization', flex: 2, cellClass: 'cell-emphasis' },
       { field: 'email', headerName: 'Email', flex: 1.5 },
       {
         field: 'timezone',
@@ -126,7 +126,7 @@ export default function ClientsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Client Master</h1>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">Client Master</h1>
           <p className="text-sm text-muted-foreground">Manage client organizations you work with.</p>
         </div>
         {canAdd && (

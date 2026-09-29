@@ -33,8 +33,8 @@ export function Sheet({ open, onOpenChange, title, children, footer, className }
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <h2 id="sheet-title" className="text-lg font-semibold text-foreground">
+        <div className="flex shrink-0 items-center justify-between border-b border-indigo-100 bg-indigo-50/50 px-6 py-4">
+          <h2 id="sheet-title" className="text-lg font-bold text-slate-900">
             {title}
           </h2>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} aria-label="Close">

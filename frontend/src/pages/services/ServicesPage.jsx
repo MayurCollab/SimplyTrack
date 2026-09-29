@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { serviceSchema } from '@/lib/schemas'
+import { COMPLIANCE_PERIOD_TYPES } from '@/lib/compliancePeriod'
 import { useAppForm } from '@/hooks/useAppForm'
 import { usePermission } from '@/hooks/usePermissions'
 import { useServices, useServiceMutations } from '@/hooks/useMasters'
@@ -9,8 +10,9 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { FilterBar } from '@/components/data-table/FilterBar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { FormField, FormSwitchRow } from '@/components/ui/form-field'
+import { FormField, FormRow, FormSwitchRow } from '@/components/ui/form-field'
 import { Sheet } from '@/components/ui/sheet'
 
 const FORM_ID = 'service-form'
@@ -31,12 +33,24 @@ export default function ServicesPage() {
 
   const form = useAppForm({
     resolver: zodResolver(serviceSchema),
-    defaultValues: { name: '', estimatedHours: 1, isActive: true },
+    defaultValues: {
+      name: '',
+      estimatedHours: 1,
+      turnaroundBusinessDays: 3,
+      compliancePeriodType: 'due_date',
+      isActive: true,
+    },
   })
 
   function openCreate() {
     setEditing(null)
-    form.reset({ name: '', estimatedHours: 1, isActive: true })
+    form.reset({
+      name: '',
+      estimatedHours: 1,
+      turnaroundBusinessDays: 3,
+      compliancePeriodType: 'due_date',
+      isActive: true,
+    })
     setSheetOpen(true)
   }
 
@@ -45,6 +59,8 @@ export default function ServicesPage() {
     form.reset({
       name: row.name,
       estimatedHours: row.estimatedHours,
+      turnaroundBusinessDays: row.turnaroundBusinessDays ?? 3,
+      compliancePeriodType: row.compliancePeriodType ?? 'due_date',
       isActive: row.isActive ?? true,
     })
     setSheetOpen(true)
@@ -61,12 +77,31 @@ export default function ServicesPage() {
 
   const columnDefs = useMemo(
     () => [
-      { field: 'name', headerName: 'Name', flex: 2 },
+      { field: 'name', headerName: 'Name', flex: 2, cellClass: 'cell-emphasis' },
       {
         field: 'estimatedHours',
         headerName: 'Estimated Hours',
         width: 140,
-        cellClass: 'tabular-nums',
+        cellRenderer: (p) => (
+          <span className="font-bold tabular-nums text-slate-800">{p.value}h</span>
+        ),
+      },
+      {
+        field: 'turnaroundBusinessDays',
+        headerName: 'Turnaround (BD)',
+        width: 140,
+        cellRenderer: (p) => (
+          <span className="font-semibold tabular-nums text-slate-700">
+            {p.value != null ? `${p.value} days` : '—'}
+          </span>
+        ),
+      },
+      {
+        headerName: 'Compliance Period',
+        flex: 1,
+        valueGetter: (p) =>
+          COMPLIANCE_PERIOD_TYPES.find((t) => t.value === p.data.compliancePeriodType)?.label ??
+          'Due Date',
       },
       {
         field: 'isActive',
@@ -111,7 +146,7 @@ export default function ServicesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Service Master</h1>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">Service Master</h1>
           <p className="text-sm text-muted-foreground">Define services and default estimated hours.</p>
         </div>
         {canAdd && (
@@ -159,6 +194,34 @@ export default function ServicesPage() {
               {...form.register('estimatedHours', { valueAsNumber: true })}
             />
           </FormField>
+          <FormRow>
+            <FormField
+              label="Turnaround (Business Days)"
+              htmlFor="turnaroundBusinessDays"
+              error={form.formState.errors.turnaroundBusinessDays?.message}
+            >
+              <Input
+                id="turnaroundBusinessDays"
+                type="number"
+                min="0"
+                step="1"
+                {...form.register('turnaroundBusinessDays', { valueAsNumber: true })}
+              />
+            </FormField>
+            <FormField
+              label="Compliance Period Type"
+              htmlFor="compliancePeriodType"
+              error={form.formState.errors.compliancePeriodType?.message}
+            >
+              <Select id="compliancePeriodType" {...form.register('compliancePeriodType')}>
+                {COMPLIANCE_PERIOD_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+          </FormRow>
           <FormSwitchRow label="Active">
             <Switch
               checked={form.watch('isActive')}

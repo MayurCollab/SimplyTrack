@@ -28,7 +28,6 @@ npm run dev
 
 API: `http://localhost:5000`
 
-
 Without SMTP credentials filled in `.env`, OTP codes are printed in the backend console (dev mode).
 
 ### Frontend
@@ -42,35 +41,26 @@ npm run dev
 
 App: `http://localhost:5173` (or `5174` if 5173 is busy)
 
+## Platform phases (done)
 
-## Phase 1 (done)
+1. Auth, app shell, design system
+2. Masters (stages, services, clients, users) + permissions middleware
+3. Task Master, timers, closing notes, break/training
+4.1 Project Master
 
-- Separate `frontend` / `backend` folders
-- Auth: register (org + owner) → OTP → JWT
-- Login → OTP → JWT (httpOnly refresh cookie)
-- App shell (sidebar + topbar) + protected routes
-- Design system tokens (white / indigo accent)
+## Task Management requirements (done)
 
-## Phase 2 (done)
-
-- Stage, Service, Client, User masters (CRUD + ag-Grid lists)
-- Permission middleware on all master routes
-- `GET /api/permissions/me` for frontend action gating
-- Filter bars, Sheet forms, inline active toggles
-
-## Phase 3 (done)
-
-- Task Master: list (ag-Grid + filters), New/Edit task form
-- Timer start/stop with closing-note dialog (spellcheck, locked duration)
-- Break / Training in topbar with one-session-at-a-time enforcement
-- TimeLog corrections (`editLoggedTime`) + task hour rollup
-
-## Phase 4.1 (done)
-
-- Project Master: list + filters (search / client / assignee), add/edit sheet, delete
-- Multi-select assignees, client link, estimated hours
+| Phase | Scope |
+|-------|--------|
+| 0 | Service turnaround + compliance type, permissions, default workflow stages |
+| 1 | Immutable Task ID (`TSK-000001`), server-side auto title, Remarks |
+| 2 | Extra date fields, service-specific compliance period, auto Target Date |
+| 3 | Mark Complete / Ignore (Manager / Super Admin) |
+| 4 | Status workflow prompts (Query Sent / Reply Received dates) |
+| 5 | Recurring tasks + suggested next-period tasks |
+| 6 | Migrations, list filters (lifecycle, target date), docs |
 
 ## Next
 
-4.2 Reports, Permission Master UI, Settings
-5. Dashboard polish
+- Reports, Permission Master UI, Settings
+- Dashboard polish

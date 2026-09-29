@@ -9,7 +9,12 @@ const FULL = {
   delete: true,
   editBudgetHours: true,
   editLoggedTime: true,
+  complete: true,
+  ignore: true,
+  editTargetDate: true,
 };
+
+const ACTION_KEYS = Object.keys(FULL);
 
 function fullAccessMap() {
   return Object.fromEntries(MODULES.map((m) => [m, { ...FULL }]));
@@ -44,10 +49,44 @@ async function list(req, res, next) {
     const permissions = await Permission.find(orgFilter(req.user))
       .sort({ role: 1, module: 1 })
       .lean();
-    res.json({ data: permissions });
+    res.json({ data: permissions, modules: MODULES, actions: ACTION_KEYS });
   } catch (err) {
     next(err);
   }
 }
 
-module.exports = { getMyPermissions, list };
+async function update(req, res, next) {
+  try {
+    const orgId = orgFilter(req.user).organizationId;
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+
+    const updated = [];
+    for (const item of items) {
+      if (!item?.role || !item?.module || !MODULES.includes(item.module)) continue;
+      if (!['manager', 'staff'].includes(item.role)) continue;
+
+      const existing = await Permission.findOne({
+        organizationId: orgId,
+        role: item.role,
+        module: item.module,
+      });
+      if (!existing) continue;
+
+      const nextActions = { ...existing.actions };
+      for (const key of ACTION_KEYS) {
+        if (typeof item.actions?.[key] === 'boolean') {
+          nextActions[key] = item.actions[key];
+        }
+      }
+      existing.actions = nextActions;
+      await existing.save();
+      updated.push(existing.toObject());
+    }
+
+    res.json({ data: updated, message: 'Permissions updated' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getMyPermissions, list, update };

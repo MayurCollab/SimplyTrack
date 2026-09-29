@@ -4,6 +4,8 @@ const Settings = require('../models/Settings');
 const config = require('../config/env');
 const { createAndSendOtp, verifyOtp } = require('../services/otp');
 const { seedDefaultPermissions } = require('../services/permissions');
+const { seedDefaultStages } = require('../services/stages');
+const { seedDefaultAlerts } = require('../services/alerts');
 const {
   signAccessToken,
   signRefreshToken,
@@ -44,6 +46,8 @@ async function register(req, res, next) {
     });
 
     await seedDefaultPermissions(organization._id);
+    await seedDefaultStages(organization._id);
+    await seedDefaultAlerts(organization._id);
 
     const otpResult = await createAndSendOtp({
       email,

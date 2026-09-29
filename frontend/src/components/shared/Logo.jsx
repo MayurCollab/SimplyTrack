@@ -25,7 +25,7 @@ export function Logo({ showText = true, collapsed = false, animate = false, size
       {renderText && (
         <span
           className={cn(
-            'truncate font-semibold tracking-tight text-foreground',
+            'truncate font-semibold tracking-tight text-slate-900',
             text,
             animate && [
               TEXT_TRANSITION,
