@@ -13,7 +13,7 @@ export function formatSecondsAsHms(totalSeconds) {
 
 /**
  * Format fractional minutes as hh:mm:ss.
- * Uses floor on whole seconds only — no round-up of partial seconds.
+ * Uses floor on whole seconds only - no round-up of partial seconds.
  */
 export function formatMinutesAsHms(totalMinutes) {
   const ms = Math.max(0, (totalMinutes || 0) * 60000)

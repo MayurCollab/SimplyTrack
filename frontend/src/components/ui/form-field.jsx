@@ -17,7 +17,7 @@ export function FormField({ label, htmlFor, error, required, children, className
 
 export function FormRow({ children, className }) {
   return (
-    <div className={cn('grid gap-4 sm:grid-cols-2', className)}>
+    <div className={cn('grid gap-3 sm:grid-cols-2', className)}>
       {children}
     </div>
   )

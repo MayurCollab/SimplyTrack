@@ -196,7 +196,7 @@ export default function PermissionsPage() {
                             />
                           </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
+                          <span className="text-xs text-muted-foreground">-</span>
                         )}
                       </td>
                     ))}

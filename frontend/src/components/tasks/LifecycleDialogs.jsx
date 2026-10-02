@@ -40,7 +40,7 @@ export function CompleteTaskDialog({ open, task, loading, onConfirm, onCancel })
       <div className="modal-panel relative w-full max-w-sm rounded-xl border border-border bg-white p-6 shadow-xl">
         <h3 className="text-lg font-semibold text-foreground">Mark Task Complete</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          {task?.taskCode ? `${task.taskCode} — ` : ''}
+          {task?.taskCode ? `${task.taskCode} - ` : ''}
           {task?.title || 'Task'}
         </p>
         <div className="mt-4 space-y-4">
@@ -101,7 +101,7 @@ export function IgnoreTaskDialog({ open, task, loading, onConfirm, onCancel }) {
       <div className="modal-panel relative w-full max-w-sm rounded-xl border border-border bg-white p-6 shadow-xl">
         <h3 className="text-lg font-semibold text-foreground">Ignore Task</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          {task?.taskCode ? `${task.taskCode} — ` : ''}
+          {task?.taskCode ? `${task.taskCode} - ` : ''}
           {task?.title || 'Task'}
         </p>
         <div className="mt-4 space-y-4">

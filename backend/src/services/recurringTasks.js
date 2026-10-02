@@ -143,7 +143,7 @@ async function generateDueSuggestions(organizationId = null) {
       });
       created += 1;
     } catch (err) {
-      // Duplicate key — already suggested this period
+      // Duplicate key - already suggested this period
       if (err.code !== 11000) throw err;
     }
   }

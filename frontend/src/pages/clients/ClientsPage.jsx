@@ -145,6 +145,7 @@ export default function ClientsPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         title={editing ? 'Edit Client' : 'Add Client'}
+        size="xl"
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>

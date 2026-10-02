@@ -284,7 +284,7 @@ async function create(req, res, next) {
 
     if (!title) {
       return res.status(400).json({
-        message: 'Could not generate task title — check client, service, and compliance period',
+        message: 'Could not generate task title - check client, service, and compliance period',
       });
     }
 
@@ -401,7 +401,7 @@ async function update(req, res, next) {
       budgetHours,
     } = req.body;
 
-    // taskCode and title are never accepted from the client — title is regenerated below
+    // taskCode and title are never accepted from the client - title is regenerated below
     const mentionUsers =
       description != null || reviewPoints != null
         ? await loadMentionUsers(User, orgId)
@@ -737,7 +737,7 @@ async function complete(req, res, next) {
     const completedStage = await findStageBySystemKey(orgId, 'completed');
     if (!completedStage) {
       return res.status(400).json({
-        message: 'Completed stage is missing — check Stage Master',
+        message: 'Completed stage is missing - check Stage Master',
       });
     }
 
@@ -784,7 +784,7 @@ async function ignore(req, res, next) {
     const ignoredStage = await findStageBySystemKey(orgId, 'ignored');
     if (!ignoredStage) {
       return res.status(400).json({
-        message: 'Ignored stage is missing — check Stage Master',
+        message: 'Ignored stage is missing - check Stage Master',
       });
     }
 

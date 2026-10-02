@@ -71,7 +71,7 @@ function ReviewPointsHistoryDialog({ open, history, onClose }) {
                     <span className="text-xs text-muted-foreground">
                       {entry.changedAt
                         ? format(new Date(entry.changedAt), 'dd/MM/yyyy HH:mm')
-                        : '—'}
+                        : '-'}
                     </span>
                     {entry.changedBy?.name && (
                       <span className="text-xs text-muted-foreground">
@@ -83,10 +83,10 @@ function ReviewPointsHistoryDialog({ open, history, onClose }) {
                   {entry.action === 'updated' &&
                   entry.previousDescription !== entry.description ? (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      <span className="line-through">{entry.previousDescription || '—'}</span>
+                      <span className="line-through">{entry.previousDescription || '-'}</span>
                       {' → '}
                       <span className="text-sm font-medium text-foreground">
-                        {entry.description || '—'}
+                        {entry.description || '-'}
                       </span>
                     </p>
                   ) : (

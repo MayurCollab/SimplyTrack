@@ -13,6 +13,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  assetsInclude: ['**/*.aff', '**/*.dic'],
+  optimizeDeps: {
+    include: ['nspell'],
+  },
   server: {
     port: 5174,
   },

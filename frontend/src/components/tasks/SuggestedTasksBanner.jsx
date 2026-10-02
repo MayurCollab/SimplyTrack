@@ -26,13 +26,13 @@ export function SuggestedTasksBanner() {
           >
             <div>
               <p className="font-medium text-foreground">
-                {s.clientId?.organizationName || 'Client'} — {s.serviceId?.name || 'Service'} —{' '}
+                {s.clientId?.organizationName || 'Client'} - {s.serviceId?.name || 'Service'} -{' '}
                 {s.compliancePeriodValue}
               </p>
               <p className="text-xs font-semibold text-muted-foreground">
                 Due{' '}
                 <span className="font-bold text-slate-800">
-                  {s.dueDate ? format(new Date(s.dueDate), 'dd/MM/yyyy') : '—'}
+                  {s.dueDate ? format(new Date(s.dueDate), 'dd/MM/yyyy') : '-'}
                 </span>
                 {s.recurrenceId?.frequency ? ` · ${s.recurrenceId.frequency}` : ''}
               </p>

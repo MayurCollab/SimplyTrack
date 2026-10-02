@@ -121,7 +121,7 @@ function dueStatus(value) {
 }
 
 function DateCell({ value, tone = 'muted' }) {
-  if (!value) return <span className="text-muted-foreground">—</span>
+  if (!value) return <span className="text-muted-foreground">-</span>
   const styles = {
     overdue: 'font-bold tabular-nums text-red-600',
     today: 'font-bold tabular-nums text-amber-600',
@@ -133,7 +133,7 @@ function DateCell({ value, tone = 'muted' }) {
 }
 
 function TaskIdCell({ value }) {
-  if (!value) return <span className="text-muted-foreground">—</span>
+  if (!value) return <span className="text-muted-foreground">-</span>
   return (
     <span className="inline-flex items-center rounded-md bg-indigo-50 px-1.5 py-0.5 font-mono text-xs font-bold tracking-tight text-indigo-700 ring-1 ring-indigo-100">
       {value}
@@ -343,12 +343,12 @@ export default function TasksPage() {
 
   const managerDisplay = useMemo(() => {
     if (!selectedAssignee?.reportingManagerId) {
-      return editing?.managerId?.name || '—'
+      return editing?.managerId?.name || '-'
     }
     const mid =
       selectedAssignee.reportingManagerId._id || selectedAssignee.reportingManagerId
     const m = managers.find((x) => x._id === mid)
-    return m?.name || selectedAssignee.reportingManagerId?.name || '—'
+    return m?.name || selectedAssignee.reportingManagerId?.name || '-'
   }, [selectedAssignee, managers, editing])
 
   function openCreate() {
@@ -472,7 +472,7 @@ export default function TasksPage() {
         headerName: 'Client',
         flex: 1.4,
         cellClass: 'cell-emphasis',
-        valueGetter: (p) => p.data.clientId?.organizationName || '—',
+        valueGetter: (p) => p.data.clientId?.organizationName || '-',
       },
       {
         field: 'title',
@@ -483,7 +483,7 @@ export default function TasksPage() {
       {
         headerName: 'Staff',
         flex: 1.2,
-        valueGetter: (p) => p.data.assigneeId?.name || '—',
+        valueGetter: (p) => p.data.assigneeId?.name || '-',
       },
       {
         headerName: 'Status',
@@ -680,7 +680,7 @@ export default function TasksPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">Task Master</h1>
           <p className="text-sm text-muted-foreground">
-            Track work with timers — start/stop logging time against tasks.
+            Track work with timers - start/stop logging time against tasks.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -783,7 +783,7 @@ export default function TasksPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         title={editing ? 'Edit Task' : 'Add Task'}
-        className="max-w-2xl"
+        size="full"
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
@@ -797,7 +797,7 @@ export default function TasksPage() {
           </>
         }
       >
-        <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+        <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
           {editingClosed && (
             <div className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
               This task is{' '}
@@ -811,7 +811,7 @@ export default function TasksPage() {
                 <>
                   {' '}
                   on {format(new Date(editing.ignoredAt), 'dd/MM/yyyy')}
-                  {editing.ignoreRemarks ? ` — ${editing.ignoreRemarks}` : ''}
+                  {editing.ignoreRemarks ? ` - ${editing.ignoreRemarks}` : ''}
                 </>
               )}
               . Status and timer are locked.
@@ -872,7 +872,7 @@ export default function TasksPage() {
           )}
 
           {showRecurringFields && (
-            <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+            <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
               <FormField label="Is this a recurring task?" htmlFor="isRecurring">
                 <Select
                   id="isRecurring"
@@ -890,8 +890,8 @@ export default function TasksPage() {
                     if (!yes) form.setValue('alertId', '')
                   }}
                 >
-                  <option value="no">No — one-time task</option>
-                  <option value="yes">Yes — set up recurrence</option>
+                  <option value="no">No - one-time task</option>
+                  <option value="yes">Yes - set up recurrence</option>
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   Asked only the first time this client + service combination is created.
@@ -942,7 +942,7 @@ export default function TasksPage() {
             </div>
           )}
 
-          <FormRow>
+          <FormRow className="sm:grid-cols-3">
             <FormField
               label="Assignee"
               htmlFor="assigneeId"
@@ -967,16 +967,15 @@ export default function TasksPage() {
                 ))}
               </Select>
             </FormField>
+            <FormField label="Manager" htmlFor="managerDisplay">
+              <Input id="managerDisplay" value={managerDisplay} readOnly className="bg-muted" />
+              <p className="text-xs text-muted-foreground">
+                Auto-filled from assignee&apos;s reporting manager
+              </p>
+            </FormField>
           </FormRow>
 
-          <FormField label="Manager" htmlFor="managerDisplay">
-            <Input id="managerDisplay" value={managerDisplay} readOnly className="bg-muted" />
-            <p className="text-xs text-muted-foreground">
-              Auto-filled from assignee&apos;s reporting manager
-            </p>
-          </FormField>
-
-          <div className="grid gap-4 sm:grid-cols-3">
+          <FormRow className="sm:grid-cols-3">
             <FormField
               label="Status"
               htmlFor="stageId"
@@ -1008,20 +1007,21 @@ export default function TasksPage() {
                 <option value="high">High</option>
               </Select>
             </FormField>
-          </div>
+            {editing?.createdAt ? (
+              <FormField label="Task Create Date" htmlFor="taskCreateDate">
+                <Input
+                  id="taskCreateDate"
+                  value={format(new Date(editing.createdAt), 'dd/MM/yyyy')}
+                  readOnly
+                  className="bg-muted"
+                />
+              </FormField>
+            ) : (
+              <div />
+            )}
+          </FormRow>
 
-          {editing?.createdAt && (
-            <FormField label="Task Create Date" htmlFor="taskCreateDate">
-              <Input
-                id="taskCreateDate"
-                value={format(new Date(editing.createdAt), 'dd/MM/yyyy')}
-                readOnly
-                className="bg-muted"
-              />
-            </FormField>
-          )}
-
-          <FormRow>
+          <FormRow className="sm:grid-cols-4">
             <FormField
               label="Task Receive Date"
               htmlFor="taskReceiveDate"
@@ -1032,9 +1032,6 @@ export default function TasksPage() {
             <FormField label="Query Sent Date" htmlFor="querySentDate">
               <Input id="querySentDate" type="date" {...form.register('querySentDate')} />
             </FormField>
-          </FormRow>
-
-          <FormRow>
             <FormField label="Reply Received Date" htmlFor="replyReceivedDate">
               <Input id="replyReceivedDate" type="date" {...form.register('replyReceivedDate')} />
             </FormField>
@@ -1058,33 +1055,34 @@ export default function TasksPage() {
             </FormField>
           </FormRow>
 
-          <FormField label="Title" htmlFor="titlePreview">
-            <Input id="titlePreview" value={titlePreview} readOnly className="bg-muted" />
-            <p className="text-xs text-muted-foreground">
-              Auto-generated as Client - Service - compliance period
-            </p>
-          </FormField>
-
-          <FormField
-            label="Budget Hours"
-            htmlFor="budgetHours"
-            error={form.formState.errors.budgetHours?.message}
-          >
-            <Input
-              id="budgetHours"
-              type="number"
-              step="0.01"
-              min="0.01"
-              readOnly={!canEditBudget}
-              className={!canEditBudget ? 'bg-muted' : ''}
-              {...form.register('budgetHours', { valueAsNumber: true })}
-            />
-            {!canEditBudget && (
+          <FormRow>
+            <FormField label="Title" htmlFor="titlePreview">
+              <Input id="titlePreview" value={titlePreview} readOnly className="bg-muted" />
               <p className="text-xs text-muted-foreground">
-                Auto-filled from service. You don&apos;t have permission to edit budget hours.
+                Auto-generated as Client - Service - compliance period
               </p>
-            )}
-          </FormField>
+            </FormField>
+            <FormField
+              label="Budget Hours"
+              htmlFor="budgetHours"
+              error={form.formState.errors.budgetHours?.message}
+            >
+              <Input
+                id="budgetHours"
+                type="number"
+                step="0.01"
+                min="0.01"
+                readOnly={!canEditBudget}
+                className={!canEditBudget ? 'bg-muted' : ''}
+                {...form.register('budgetHours', { valueAsNumber: true })}
+              />
+              {!canEditBudget && (
+                <p className="text-xs text-muted-foreground">
+                  Auto-filled from service. You don&apos;t have permission to edit budget hours.
+                </p>
+              )}
+            </FormField>
+          </FormRow>
 
           <FormField label="Remarks" htmlFor="description">
             <Controller

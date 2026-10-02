@@ -166,6 +166,7 @@ export default function UsersPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         title={editing ? 'Edit User' : 'Add User'}
+        size="xl"
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>

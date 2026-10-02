@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { formatElapsed, formatTimeLogDuration } from '@/lib/time'
 import { useTimerStore } from '@/store/timerStore'
 import { useTimerActions } from '@/hooks/useTimer'
@@ -133,7 +134,7 @@ export function ClosingNoteDialog() {
         <p className="mt-1 text-sm text-muted-foreground">
           {sessionLabel(timeLog)}
           {mode === 'switch'
-            ? ` — add a note to switch to ${switchTargetLabel(pendingAction)}`
+            ? ` - add a note to switch to ${switchTargetLabel(pendingAction)}`
             : timeLog.autoClosedBySwitch
               ? ' (auto-stopped when switching)'
               : ''}
@@ -171,16 +172,15 @@ export function ClosingNoteDialog() {
             <Label htmlFor="closingNote" required>
               Note
             </Label>
-            <textarea
+            <Textarea
               id="closingNote"
-              spellCheck
               rows={4}
               required
               minLength={10}
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="What did you work on / why break / training or meeting notes…"
-              className="mt-1.5 flex w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="mt-1.5"
             />
             <p className="mt-1 text-xs text-muted-foreground">
               Minimum 10 characters ({trimmedNote.length}/10)

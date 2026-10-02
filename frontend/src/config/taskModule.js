@@ -2,7 +2,7 @@
  * Task module feature flags.
  *
  * Original rollout:
- * - crud / timer / breakTraining — core Task Master
+ * - crud / timer / breakTraining - core Task Master
  *
  * Requirements doc phases (0–6) are shipped; flags remain for optional UI gating.
  */

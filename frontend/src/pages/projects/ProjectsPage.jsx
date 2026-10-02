@@ -245,6 +245,7 @@ export default function ProjectsPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         title={editing ? 'Edit Project' : 'Add Project'}
+        size="xl"
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>

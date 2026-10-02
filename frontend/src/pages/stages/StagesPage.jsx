@@ -78,7 +78,7 @@ export default function StagesPage() {
               field: 'systemKey',
               headerName: 'Workflow',
               width: 140,
-              valueFormatter: (p) => (p.value ? p.value.replace(/_/g, ' ') : '—'),
+              valueFormatter: (p) => (p.value ? p.value.replace(/_/g, ' ') : '-'),
               cellClass: 'text-xs capitalize text-muted-foreground',
             },
           ]

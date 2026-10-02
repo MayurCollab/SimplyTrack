@@ -5,7 +5,10 @@
   "main": "src/index.js",
   "scripts": {
     "dev": "nodemon src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "migrate:masters": "node scripts/migrate-masters-to-atlas.js",
+    "migrate:masters:dry": "node scripts/migrate-masters-to-atlas.js --dry-run",
+    "fix:orphan-orgs": "node scripts/fix-orphan-org-users.js"
   },
   "keywords": [],
   "author": "",

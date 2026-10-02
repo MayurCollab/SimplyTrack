@@ -92,7 +92,7 @@ export default function ServicesPage() {
         width: 140,
         cellRenderer: (p) => (
           <span className="font-semibold tabular-nums text-slate-700">
-            {p.value != null ? `${p.value} days` : '—'}
+            {p.value != null ? `${p.value} days` : '-'}
           </span>
         ),
       },
@@ -165,6 +165,7 @@ export default function ServicesPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         title={editing ? 'Edit Service' : 'Add Service'}
+        size="xl"
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
