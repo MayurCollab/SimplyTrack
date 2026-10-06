@@ -21,4 +21,14 @@ const otpVerifyLimiter = rateLimit({
   message: { message: 'Too many verification attempts. Try again later.' },
 });
 
-module.exports = { otpRequestLimiter, otpVerifyLimiter };
+const monthlyReportTestLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Please wait 5 minutes before sending another test report.',
+  },
+});
+
+module.exports = { otpRequestLimiter, otpVerifyLimiter, monthlyReportTestLimiter };

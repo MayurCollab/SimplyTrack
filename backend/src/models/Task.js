@@ -31,6 +31,21 @@ const taskSchema = new mongoose.Schema(
           },
           notes: { type: String, trim: true, default: '' },
           mentions: { type: [taggedUserSchema], default: [] },
+          replies: {
+            type: [
+              {
+                authorId: {
+                  type: mongoose.Schema.Types.ObjectId,
+                  ref: 'User',
+                  required: true,
+                },
+                authorName: { type: String, trim: true, default: '' },
+                message: { type: String, trim: true, required: true },
+                createdAt: { type: Date, default: Date.now },
+              },
+            ],
+            default: [],
+          },
         },
       ],
       default: [],
@@ -85,6 +100,9 @@ const taskSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    isShared: { type: Boolean, default: false },
+    assigneeAllocatedHours: { type: Number, default: null, min: 0 },
+    helperAllocatedHours: { type: Number, default: null, min: 0 },
     stageId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'StageMaster',

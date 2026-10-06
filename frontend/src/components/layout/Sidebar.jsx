@@ -27,9 +27,9 @@ const NAV_ITEMS = [
   { to: '/clients', label: 'Clients', icon: Building2 },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
   { to: '/services', label: 'Services', icon: Wrench },
-  { to: '/reports', label: 'Reports', icon: BarChart3 },
-  { to: '/permissions', label: 'Permissions', icon: Shield, roles: ['owner', 'super_admin'] },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/reports', label: 'Reports', icon: BarChart3, module: 'reports' },
+  { to: '/permissions', label: 'Permissions', icon: Shield, module: 'permissions' },
+  { to: '/settings', label: 'Settings', icon: Settings, module: 'settings' },
 ]
 
 const SIDEBAR_COLLAPSED_KEY = 'simplytrack-sidebar-collapsed'
@@ -128,7 +128,6 @@ export function Sidebar() {
   }, [isAnimating, collapsed])
 
   const items = NAV_ITEMS.filter((item) => {
-    if (item.roles && !item.roles.includes(user?.role)) return false
     if (item.module && !can(item.module, 'view')) return false
     return true
   })

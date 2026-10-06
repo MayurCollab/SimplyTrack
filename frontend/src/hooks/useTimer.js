@@ -221,7 +221,7 @@ export function useTasks(filters = {}) {
   })
 }
 
-export function useTask(id) {
+export function useTask(id, options = {}) {
   return useQuery({
     queryKey: ['tasks', id],
     queryFn: async () => {
@@ -229,6 +229,7 @@ export function useTask(id) {
       return data.data
     },
     enabled: !!id,
+    ...options,
   })
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import api from '@/lib/api'
+import { usePermission } from '@/hooks/usePermissions'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
@@ -51,6 +52,8 @@ function emptyActions() {
 
 export default function PermissionsPage() {
   const qc = useQueryClient()
+  const { allowed: canView } = usePermission('permissions', 'view')
+  const { allowed: canEdit } = usePermission('permissions', 'edit')
   const [role, setRole] = useState('manager')
   const [draft, setDraft] = useState({})
 
@@ -60,6 +63,7 @@ export default function PermissionsPage() {
       const { data } = await api.get('/permissions')
       return data
     },
+    enabled: canView,
   })
 
   const modules = data?.modules || Object.keys(MODULE_LABELS)
@@ -101,6 +105,7 @@ export default function PermissionsPage() {
   })
 
   function toggle(module, action, checked) {
+    if (!canEdit) return
     setDraft((prev) => ({
       ...prev,
       [module]: {
@@ -111,12 +116,23 @@ export default function PermissionsPage() {
     }))
   }
 
+  if (!canView) {
+    return (
+      <div className="p-6">
+        <p className="text-sm text-slate-500">
+          You do not have permission to view permissions.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold tracking-tight text-slate-900">Permissions</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Control what managers and staff can do. Owners and super admins always have full access.
+          Grant managers or staff the Permissions module View access to let them open this page.
           Alert options can be added or edited only by users with Alerts add/edit/delete permission.
         </p>
       </div>
@@ -182,6 +198,7 @@ export default function PermissionsPage() {
                           <Switch
                             checked={Boolean(actions[a.key])}
                             onCheckedChange={(v) => toggle(module, a.key, v)}
+                            disabled={!canEdit}
                           />
                         </div>
                       </td>
@@ -193,6 +210,7 @@ export default function PermissionsPage() {
                             <Switch
                               checked={Boolean(actions[a.key])}
                               onCheckedChange={(v) => toggle(module, a.key, v)}
+                              disabled={!canEdit}
                             />
                           </div>
                         ) : (
@@ -208,14 +226,20 @@ export default function PermissionsPage() {
         </table>
       </div>
 
-      <div className="flex justify-end">
-        <Button
-          onClick={() => save.mutate(dirtyItems)}
-          disabled={save.isPending || dirtyItems.length === 0}
-        >
-          {save.isPending ? 'Saving…' : 'Save changes'}
-        </Button>
-      </div>
+      {canEdit ? (
+        <div className="flex justify-end">
+          <Button
+            onClick={() => save.mutate(dirtyItems)}
+            disabled={save.isPending || dirtyItems.length === 0}
+          >
+            {save.isPending ? 'Saving…' : 'Save changes'}
+          </Button>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          You can view permissions but need Edit access to change them.
+        </p>
+      )}
     </div>
   )
 }

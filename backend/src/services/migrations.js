@@ -170,9 +170,64 @@ async function migrateOrgTasks(orgId) {
   }
 }
 
+async function migrateSettingsDefaults() {
+  const Settings = require('../models/Settings');
+  const { DEFAULT_MONTHLY_REPORT_COLUMNS } = require('../constants/monthlyReportColumns');
+
+  await Settings.updateMany(
+    {
+      $or: [
+        { defaultTimezone: { $exists: false } },
+        { defaultTimezone: null },
+        { defaultTimezone: '' },
+        { defaultTimezone: 'Asia/Calcutta' },
+      ],
+    },
+    { $set: { defaultTimezone: 'Asia/Kolkata' } }
+  );
+
+  await Settings.updateMany(
+    { monthlyStatusReport: { $exists: false } },
+    {
+      $set: {
+        monthlyStatusReport: {
+          enabled: false,
+          sendTime: '23:55',
+          recipientUserIds: [],
+          externalEmails: [],
+          selectedColumns: DEFAULT_MONTHLY_REPORT_COLUMNS,
+          lastSuccessPeriodKey: '',
+        },
+      },
+    }
+  );
+
+  await Settings.updateMany(
+    {
+      $or: [
+        { 'monthlyStatusReport.sendTime': { $exists: false } },
+        { 'monthlyStatusReport.sendTime': null },
+        { 'monthlyStatusReport.sendTime': '' },
+      ],
+    },
+    { $set: { 'monthlyStatusReport.sendTime': '23:55' } }
+  );
+
+  await Settings.updateMany(
+    {
+      $or: [
+        { 'monthlyStatusReport.selectedColumns': { $exists: false } },
+        { 'monthlyStatusReport.selectedColumns': { $size: 0 } },
+      ],
+    },
+    { $set: { 'monthlyStatusReport.selectedColumns': DEFAULT_MONTHLY_REPORT_COLUMNS } }
+  );
+}
+
 async function runStartupMigrations() {
   await migratePermissions();
   await migrateServiceDefaults();
+  await migrateSettingsDefaults();
 
   const orgs = await Organization.find({}).select('_id').lean();
   for (const org of orgs) {

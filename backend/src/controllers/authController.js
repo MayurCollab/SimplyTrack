@@ -42,7 +42,7 @@ async function register(req, res, next) {
 
     await Settings.create({
       organizationId: organization._id,
-      defaultTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      defaultTimezone: 'Asia/Kolkata',
     });
 
     await seedDefaultPermissions(organization._id);

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { TimerWidget } from '@/components/shared/TimerWidget'
+import { NotificationBell } from '@/components/shared/NotificationBell'
 import { useAuthStore } from '@/store/authStore'
 import { useTimerStore } from '@/store/timerStore'
 import { useActiveTimer, useTimerActions } from '@/hooks/useTimer'
@@ -73,6 +74,7 @@ export function Topbar() {
           </Button>
         )}
         <TimerWidget />
+        <NotificationBell />
         {TASK_PHASE.breakTraining && (
           <>
             {breakOverAllowance && active?.type === 'break' && (

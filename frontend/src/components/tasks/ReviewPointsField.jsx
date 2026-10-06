@@ -3,7 +3,9 @@ import { Controller, useFieldArray } from 'react-hook-form'
 import { format } from 'date-fns'
 import { History, Plus, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { MentionField } from '@/components/shared/MentionField'
+import { useNotificationMutations } from '@/hooks/useNotifications'
 import { cn } from '@/lib/utils'
 
 const ACTION_STYLES = {
@@ -104,6 +106,101 @@ function ReviewPointsHistoryDialog({ open, history, onClose }) {
   )
 }
 
+function PointReplies({
+  taskId,
+  pointId,
+  replies = [],
+  canReply,
+  onTaskUpdated,
+}) {
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const { replyToReviewPoint } = useNotificationMutations()
+
+  if (!pointId) return null
+
+  async function handleSend() {
+    const message = text.trim()
+    if (message.length < 2 || !taskId) return
+    const res = await replyToReviewPoint.mutateAsync({
+      taskId,
+      pointId,
+      message,
+    })
+    setText('')
+    setOpen(false)
+    onTaskUpdated?.(res.data?.data)
+  }
+
+  return (
+    <div className="space-y-2 border-t border-border/70 pt-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">
+          Replies {replies.length > 0 ? `(${replies.length})` : ''}
+        </p>
+        {canReply && taskId && (
+          <button
+            type="button"
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? 'Cancel' : 'Reply'}
+          </button>
+        )}
+      </div>
+
+      {replies.length === 0 && !open && (
+        <p className="text-xs text-muted-foreground">No replies yet.</p>
+      )}
+
+      {replies.length > 0 && (
+        <ul className="space-y-2">
+          {replies.map((reply) => (
+            <li
+              key={reply._id || `${reply.authorId}-${reply.createdAt}`}
+              className="rounded-md border border-border/80 bg-white px-2.5 py-2"
+            >
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="text-xs font-semibold text-foreground">
+                  {reply.authorName || 'User'}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {reply.createdAt
+                    ? format(new Date(reply.createdAt), 'dd/MM/yyyy HH:mm')
+                    : ''}
+                </span>
+              </div>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
+                {reply.message}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {open && (
+        <div className="space-y-2">
+          <Textarea
+            rows={2}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Write a reply…"
+            className="min-h-[4rem] text-sm"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={text.trim().length < 2 || replyToReviewPoint.isPending}
+            onClick={handleSend}
+          >
+            {replyToReviewPoint.isPending ? 'Sending…' : 'Send reply'}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ReviewPointsField({
   control,
   register,
@@ -111,12 +208,19 @@ export function ReviewPointsField({
   disabled,
   history = [],
   users = [],
+  taskId,
+  savedPoints = [],
+  onTaskUpdated,
 }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'reviewPoints',
   })
+
+  const savedById = new Map(
+    (savedPoints || []).filter((p) => p?._id).map((p) => [String(p._id), p])
+  )
 
   return (
     <div className="space-y-3">
@@ -160,6 +264,10 @@ export function ReviewPointsField({
         <div className="space-y-3">
           {fields.map((field, index) => {
             const rowError = errors?.reviewPoints?.[index]
+            const pointId = field._id
+            const saved = pointId ? savedById.get(String(pointId)) : null
+            const replies = saved?.replies || []
+
             return (
               <div
                 key={field.id}
@@ -188,15 +296,15 @@ export function ReviewPointsField({
                   <Controller
                     control={control}
                     name={`reviewPoints.${index}.description`}
-                    render={({ field }) => (
+                    render={({ field: descField }) => (
                       <MentionField
                         id={`reviewPoints-${index}-description`}
                         multiline
                         rows={3}
-                        value={field.value || ''}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
-                        ref={field.ref}
+                        value={descField.value || ''}
+                        onChange={descField.onChange}
+                        onBlur={descField.onBlur}
+                        ref={descField.ref}
                         users={users}
                         disabled={disabled}
                         placeholder="Type @ to tag a teammate"
@@ -209,6 +317,16 @@ export function ReviewPointsField({
                     </p>
                   )}
                 </div>
+
+                {pointId && (
+                  <PointReplies
+                    taskId={taskId}
+                    pointId={pointId}
+                    replies={replies}
+                    canReply={Boolean(taskId)}
+                    onTaskUpdated={onTaskUpdated}
+                  />
+                )}
               </div>
             )
           })}

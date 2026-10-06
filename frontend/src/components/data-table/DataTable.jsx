@@ -19,8 +19,8 @@ export function DataTable({
     () => ({
       sortable: true,
       resizable: true,
-      flex: 1,
-      minWidth: 100,
+      // No default flex — only columns that opt in (e.g. name/title) absorb leftover space.
+      minWidth: 72,
     }),
     []
   )
@@ -43,7 +43,7 @@ export function DataTable({
         onRowClicked={onRowClicked}
         getRowClass={getRowClass}
         rowHeight={rowHeight}
-        headerHeight={42}
+        headerHeight={40}
         overlayLoadingTemplate='<span class="text-sm text-muted-foreground">Loading…</span>'
         overlayNoRowsTemplate='<span class="text-sm text-muted-foreground">No rows to show</span>'
       />

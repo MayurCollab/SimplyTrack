@@ -38,6 +38,11 @@ const {
   loadMentionUsers,
   withReviewPointMentions,
 } = require('../services/mentions');
+const {
+  collectTaskMentionIds,
+  notifyNewTaskMentions,
+  notifyReviewPointReply,
+} = require('../services/notifications');
 
 const POPULATE = [
   { path: 'clientId', select: 'organizationName email' },
@@ -95,7 +100,9 @@ async function list(req, res, next) {
 
     if (status) filter.stageId = status;
     if (priority) filter.priority = priority;
-    if (staffId) filter.assigneeId = staffId;
+    if (staffId) {
+      filter.$or = [{ assigneeId: staffId }, { helpingMemberId: staffId }];
+    }
     if (clientId) filter.clientId = clientId;
 
     if (dateFrom || dateTo) {
@@ -128,10 +135,16 @@ async function list(req, res, next) {
     }
 
     if (search) {
-      filter.$or = [
+      const searchOr = [
         { title: { $regex: search, $options: 'i' } },
         { taskCode: { $regex: search, $options: 'i' } },
       ];
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, { $or: searchOr }];
+        delete filter.$or;
+      } else {
+        filter.$or = searchOr;
+      }
     }
 
     const tasks = await Task.find(filter)
@@ -370,6 +383,14 @@ async function create(req, res, next) {
       await task.save();
     }
 
+    await notifyNewTaskMentions({
+      organizationId: orgId,
+      actorId: req.user._id,
+      actorName: req.user.name,
+      task,
+      previousMentions: new Set(),
+    });
+
     const populated = await Task.findById(task._id).populate(POPULATE).lean();
     res.status(201).json({ data: populated, message: 'Task created' });
   } catch (err) {
@@ -402,6 +423,7 @@ async function update(req, res, next) {
     } = req.body;
 
     // taskCode and title are never accepted from the client - title is regenerated below
+    const previousMentions = collectTaskMentionIds(task);
     const mentionUsers =
       description != null || reviewPoints != null
         ? await loadMentionUsers(User, orgId)
@@ -422,10 +444,13 @@ async function update(req, res, next) {
       );
       const merged = incoming.map((point) => {
         const existing = point._id ? previousById.get(String(point._id)) : null;
+        const { replies: _clientReplies, ...rest } = point;
         return {
-          ...point,
+          ...rest,
           status: existing?.status || point.status || 'pending',
           notes: existing?.notes ?? point.notes ?? '',
+          // Replies are managed via the dedicated reply endpoint — never wipe on save
+          replies: existing?.replies || [],
         };
       });
       const historyEntries = buildReviewPointHistory({
@@ -576,6 +601,17 @@ async function update(req, res, next) {
     }
 
     await task.save();
+
+    if (description != null || reviewPoints != null) {
+      await notifyNewTaskMentions({
+        organizationId: orgId,
+        actorId: req.user._id,
+        actorName: req.user.name,
+        task,
+        previousMentions,
+      });
+    }
+
     const populated = await Task.findById(task._id).populate(POPULATE).lean();
     res.json({ data: populated, message: 'Task updated' });
   } catch (err) {
@@ -801,6 +837,51 @@ async function ignore(req, res, next) {
   }
 }
 
+async function replyReviewPoint(req, res, next) {
+  try {
+    const orgId = orgFilter(req.user).organizationId;
+    const message = String(req.body.message || '').trim();
+    if (!message) {
+      return res.status(400).json({ message: 'Reply message is required' });
+    }
+    if (message.length < 2) {
+      return res.status(400).json({ message: 'Reply must be at least 2 characters' });
+    }
+
+    const task = await Task.findOne({ _id: req.params.id, organizationId: orgId });
+    if (!task) return res.status(404).json({ message: 'Task not found' });
+
+    const point = task.reviewPoints.id(req.params.pointId);
+    if (!point) return res.status(404).json({ message: 'Review point not found' });
+
+    point.replies.push({
+      authorId: req.user._id,
+      authorName: req.user.name || '',
+      message,
+      createdAt: new Date(),
+    });
+
+    await task.save();
+
+    // Notify in background so the reply response stays snappy
+    notifyReviewPointReply({
+      organizationId: orgId,
+      actorId: req.user._id,
+      actorName: req.user.name,
+      task,
+      point,
+      replyMessage: message,
+    }).catch((err) => {
+      console.error('[SimplyTrack] notifyReviewPointReply failed:', err.message);
+    });
+
+    const populated = await Task.findById(task._id).populate(POPULATE).lean();
+    res.status(201).json({ data: populated, message: 'Reply added' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function checkRecurring(req, res, next) {
   try {
     const data = await checkRecurringEligibility(req);
@@ -853,6 +934,7 @@ module.exports = {
   stopTimer,
   complete,
   ignore,
+  replyReviewPoint,
   checkRecurring,
   listSuggestions,
   acceptSuggestion: acceptSuggestionHandler,

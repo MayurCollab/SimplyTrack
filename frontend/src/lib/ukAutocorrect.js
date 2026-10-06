@@ -25,6 +25,20 @@ const SKIP_TYPES = new Set([
 const WORD_ONLY_RE = /^[A-Za-z][A-Za-z']*$/
 const WORD_RE = /[A-Za-z][A-Za-z']*/g
 
+/** Common typos that Hunspell may accept as rare/valid words. */
+const COMMON_TYPOS = {
+  mach: 'much',
+  teh: 'the',
+  adn: 'and',
+  recieve: 'receive',
+  seperate: 'separate',
+  occured: 'occurred',
+  definately: 'definitely',
+  accomodate: 'accommodate',
+  wierd: 'weird',
+  untill: 'until',
+}
+
 /** Common US → UK spellings (applied before Hunspell suggestions). */
 const US_TO_UK = {
   color: 'colour',
@@ -114,7 +128,8 @@ export function getUkSpellcheckerSync() {
 /**
  * Whether an input should receive UK English autocorrect / spellcheck.
  */
-export function shouldUkAutocorrect(type, readOnly, disabled) {
+export function shouldUkAutocorrect(type, readOnly, disabled, optIn = true) {
+  if (optIn === false) return false
   if (readOnly || disabled) return false
   if (!type || type === 'text' || type === 'search') return true
   return !SKIP_TYPES.has(type)
@@ -172,6 +187,9 @@ function correctWord(checker, word) {
   if (!word || word.length < 3) return word
 
   const lower = word.toLowerCase()
+  if (COMMON_TYPOS[lower]) {
+    return matchCase(word, COMMON_TYPOS[lower])
+  }
   if (US_TO_UK[lower]) {
     return matchCase(word, US_TO_UK[lower])
   }
@@ -215,4 +233,105 @@ export function autocorrectWordBeforeCaret(checker, text, caret) {
   const next = text.slice(0, start) + fixed + text.slice(end)
   const nextCaret = caret + (fixed.length - word.length)
   return { value: next, caret: nextCaret }
+}
+
+function isKnownWord(checker, word) {
+  if (!word || word.length < 2) return true
+  const lower = word.toLowerCase()
+  if (COMMON_TYPOS[lower] || US_TO_UK[lower]) return false
+  return checker.correct(word)
+}
+
+/**
+ * UK English suggestions for a misspelled word (Chrome-like menu).
+ * Prefers typo/US→UK maps, then Hunspell suggestions with case preserved.
+ */
+export function suggestUkCorrections(checker, word, limit = 5) {
+  if (!word || !checker) return []
+
+  const lower = word.toLowerCase()
+  if (COMMON_TYPOS[lower]) {
+    return [matchCase(word, COMMON_TYPOS[lower])]
+  }
+  if (US_TO_UK[lower]) {
+    return [matchCase(word, US_TO_UK[lower])]
+  }
+
+  if (checker.correct(word)) return []
+
+  const raw = checker.suggest(word) || []
+  const seen = new Set()
+  const out = []
+  for (const s of raw) {
+    if (!s) continue
+    const cased = matchCase(word, s)
+    const key = cased.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(cased)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/**
+ * Find misspelled word ranges for red underlines.
+ * Skips the word currently being typed at the caret (Chrome-like).
+ */
+export function findMisspellings(checker, text, caret = -1) {
+  if (!checker || !text || typeof text !== 'string') return []
+
+  /** @type {{ start: number, end: number, word: string }[]} */
+  const misses = []
+  WORD_RE.lastIndex = 0
+  let match
+  while ((match = WORD_RE.exec(text)) !== null) {
+    const word = match[0]
+    const start = match.index
+    const end = start + word.length
+
+    // Don't underline the unfinished word at the caret
+    if (
+      typeof caret === 'number' &&
+      caret >= 0 &&
+      caret >= start &&
+      caret <= end
+    ) {
+      continue
+    }
+
+    if (!WORD_ONLY_RE.test(word)) continue
+    if (isKnownWord(checker, word)) continue
+
+    misses.push({ start, end, word })
+  }
+  return misses
+}
+
+/** Replace a character range and return the new string. */
+export function replaceRange(text, start, end, replacement) {
+  return text.slice(0, start) + replacement + text.slice(end)
+}
+
+/** Word under a character index (for right-click / caret). */
+export function getWordAtIndex(text, index) {
+  if (!text || typeof index !== 'number' || index < 0 || index > text.length) {
+    return null
+  }
+
+  let start = index
+  let end = index
+
+  // If clicked on trailing punctuation/space, step back into the word
+  if (start > 0 && (start === text.length || !/[A-Za-z']/.test(text[start]))) {
+    start -= 1
+    end = start + 1
+  }
+
+  while (start > 0 && /[A-Za-z']/.test(text[start - 1])) start -= 1
+  while (end < text.length && /[A-Za-z']/.test(text[end])) end += 1
+
+  const word = text.slice(start, end)
+  if (!WORD_ONLY_RE.test(word)) return null
+  return { start, end, word }
 }

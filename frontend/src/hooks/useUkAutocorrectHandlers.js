@@ -8,26 +8,29 @@ import {
 } from '@/lib/ukAutocorrect'
 
 /**
- * Shared UK English autocorrect handlers for Input / Textarea.
- * - Live: corrects the previous word when Space / punctuation is typed
- * - Blur: corrects the whole field
+ * Optional UK English *auto-replace* handlers.
  *
- * Corrections mutate the event target value *before* calling parent onChange,
- * so react-hook-form and controlled parents both see the fixed text.
+ * Default production behaviour is Chrome-like spellcheck only (underlines +
+ * suggestions) — that lives in useUkSpellcheck and does NOT mutate text.
+ *
+ * Pass ukAutocorrect={true} only when silent replace on Space/blur is wanted.
  */
 export function useUkAutocorrectHandlers({
   type = 'text',
   readOnly,
   disabled,
+  ukSpellcheck = true,
+  ukAutocorrect = false,
   onChange,
   onBlur,
   onKeyDown,
 }) {
-  const enableUk = shouldUkAutocorrect(type, readOnly, disabled)
+  const enableUk = shouldUkAutocorrect(type, readOnly, disabled, ukSpellcheck)
+  const enableAutoReplace = enableUk && ukAutocorrect === true
 
   const handleChange = useCallback(
     (e) => {
-      if (!enableUk) {
+      if (!enableAutoReplace) {
         onChange?.(e)
         return
       }
@@ -59,7 +62,6 @@ export function useUkAutocorrectHandlers({
 
       onChange?.(e)
 
-      // Dictionary still loading - correct once it is ready
       if (shouldFix && !warm) {
         const snapshot = value
         const snapshotCaret = caret
@@ -67,7 +69,6 @@ export function useUkAutocorrectHandlers({
           .then((checker) => {
             const result = autocorrectWordBeforeCaret(checker, snapshot, snapshotCaret)
             if (!result) return
-            // Only apply if the field still ends with the same unfinished word+space
             if (!el.value.startsWith(snapshot.trimEnd()) && el.value !== snapshot) return
             el.value = result.value + el.value.slice(snapshot.length)
             el.dispatchEvent(new Event('input', { bubbles: true }))
@@ -80,12 +81,12 @@ export function useUkAutocorrectHandlers({
           .catch((err) => console.warn('[ukAutocorrect] failed:', err))
       }
     },
-    [enableUk, onChange]
+    [enableAutoReplace, onChange]
   )
 
   const handleBlur = useCallback(
     (e) => {
-      if (enableUk && e.currentTarget.value) {
+      if (enableAutoReplace && e.currentTarget.value) {
         const el = e.currentTarget
         const apply = (checker) => {
           const next = autocorrectUkText(checker, el.value)
@@ -110,7 +111,7 @@ export function useUkAutocorrectHandlers({
       }
       onBlur?.(e)
     },
-    [enableUk, onBlur, onChange]
+    [enableAutoReplace, onBlur, onChange]
   )
 
   const handleKeyDown = useCallback(
@@ -122,6 +123,7 @@ export function useUkAutocorrectHandlers({
 
   return {
     enableUk,
+    enableAutoReplace,
     handleChange,
     handleBlur,
     handleKeyDown,

@@ -97,6 +97,10 @@ const reviewPointSchema = z.object({
   description: z.string().trim().min(1, 'Description is required'),
 });
 
+const reviewPointReplySchema = z.object({
+  message: z.string().trim().min(2, 'Reply must be at least 2 characters'),
+});
+
 const taskSchema = z.object({
   description: z.string().optional().default(''),
   reviewPoints: z.array(reviewPointSchema).optional().default([]),
@@ -181,6 +185,27 @@ const pendingNoteSchema = z.object({
   timeLogId: z.string().optional(),
 });
 
+const taskShareRequestSchema = z.object({
+  toUserId: objectId,
+  keepHours: z.coerce.number().min(0, 'Keep hours cannot be negative'),
+  transferHours: z.coerce.number().min(0.01, 'Transfer hours must be at least 0.01'),
+  requesterComment: z
+    .string()
+    .trim()
+    .max(300, 'Comment must be at most 300 characters')
+    .optional()
+    .default(''),
+});
+
+const taskShareReviewSchema = z.object({
+  managerComment: z
+    .string()
+    .trim()
+    .max(300, 'Comment must be at most 300 characters')
+    .optional()
+    .default(''),
+});
+
 const correctDurationSchema = z.object({
   correctedDurationMinutes: z.coerce.number().min(0),
 });
@@ -233,6 +258,58 @@ const permissionUpdateSchema = z.object({
     .min(1, 'At least one permission update is required'),
 });
 
+const { MONTHLY_REPORT_COLUMN_KEYS } = require('../constants/monthlyReportColumns');
+
+const sendTimeSchema = z
+  .string()
+  .trim()
+  .regex(/^([01]?\d|2[0-3]):[0-5]\d$/, 'Send time must be HH:mm (24-hour)');
+
+const settingsUpdateSchema = z
+  .object({
+    primaryColor: z.string().trim().optional(),
+    dateFormat: z.string().trim().optional(),
+    weekStartsOn: z.enum(['mon', 'sun']).optional(),
+    defaultTimezone: z.string().trim().min(1).optional(),
+    dailyWorkingHours: z.coerce.number().min(0).max(24).optional(),
+    dailyBreakHours: z.coerce.number().min(0).max(24).optional(),
+    monthlyStatusReport: z
+      .object({
+        enabled: z.boolean().optional(),
+        sendTime: sendTimeSchema.optional(),
+        recipientUserIds: z.array(z.string().trim().min(1)).optional(),
+        externalEmails: z.array(z.string().trim()).optional(),
+        selectedColumns: z
+          .array(
+            z
+              .string()
+              .refine((key) => MONTHLY_REPORT_COLUMN_KEYS.includes(key), {
+                message: 'Invalid report column',
+              })
+          )
+          .min(1, 'Select at least one column')
+          .optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      const msr = data.monthlyStatusReport;
+      if (!msr || msr.enabled !== true) return true;
+      const hasUsers = (msr.recipientUserIds || []).length > 0;
+      const hasExternal = (msr.externalEmails || []).length > 0;
+      // If only toggling enabled without recipient fields, controller checks persisted values
+      if (msr.recipientUserIds === undefined && msr.externalEmails === undefined) {
+        return true;
+      }
+      return hasUsers || hasExternal;
+    },
+    {
+      message: 'Add at least one recipient before enabling the monthly status report',
+      path: ['monthlyStatusReport'],
+    }
+  );
+
 function validate(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
@@ -259,14 +336,18 @@ module.exports = {
   statusSchema,
   taskSchema,
   taskUpdateSchema,
+  reviewPointReplySchema,
   closingNoteSchema,
   completeTaskSchema,
   ignoreTaskSchema,
   pendingNoteSchema,
+  taskShareRequestSchema,
+  taskShareReviewSchema,
   correctDurationSchema,
   projectSchema,
   projectUpdateSchema,
   alertSchema,
   permissionUpdateSchema,
+  settingsUpdateSchema,
   validate,
 };

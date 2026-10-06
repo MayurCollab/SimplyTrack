@@ -6,11 +6,14 @@ const {
   validate,
   taskSchema,
   taskUpdateSchema,
+  reviewPointReplySchema,
   closingNoteSchema,
   completeTaskSchema,
   ignoreTaskSchema,
+  taskShareRequestSchema,
 } = require('../utils/validation');
 const taskController = require('../controllers/taskController');
+const taskShareController = require('../controllers/taskShareController');
 
 const router = express.Router();
 
@@ -39,10 +42,24 @@ router.post(
   taskController.dismissSuggestion
 );
 
+router.post(
+  '/:id/share-requests',
+  permissionMiddleware('tasks', 'edit'),
+  validate(taskShareRequestSchema),
+  taskShareController.create
+);
+
 router.get('/:id', permissionMiddleware('tasks', 'view'), taskController.getOne);
 router.post('/', permissionMiddleware('tasks', 'add'), validate(taskSchema), taskController.create);
 router.patch('/:id', permissionMiddleware('tasks', 'edit'), validate(taskUpdateSchema), taskController.update);
 router.delete('/:id', permissionMiddleware('tasks', 'delete'), taskController.remove);
+
+router.post(
+  '/:id/review-points/:pointId/replies',
+  permissionMiddleware('tasks', 'view'),
+  validate(reviewPointReplySchema),
+  taskController.replyReviewPoint
+);
 
 router.post(
   '/:id/complete',

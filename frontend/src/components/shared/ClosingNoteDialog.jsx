@@ -24,12 +24,19 @@ function switchTargetLabel(pendingAction) {
   return 'new session'
 }
 
+function isOtherClosingNoteStage(stage) {
+  if (!stage?.name) return false
+  // Match "Other (...)" variants so renamed/legacy rows still require details.
+  return /^other\s*\(/i.test(String(stage.name).trim())
+}
+
 export function ClosingNoteDialog() {
   const noteDialog = useTimerStore((s) => s.noteDialog)
   const closeNoteDialog = useTimerStore((s) => s.closeNoteDialog)
   const { stopTaskTimer, stopBreak, stopTraining, submitPendingNote, completeTimerSwitch } =
     useTimerActions()
   const [note, setNote] = useState('')
+  const [otherDetails, setOtherDetails] = useState('')
   const [closingNoteStageId, setClosingNoteStageId] = useState('')
   const [now, setNow] = useState(Date.now())
   const { data: closingNoteStages = [] } = useStages('', 'closing_note')
@@ -53,6 +60,7 @@ export function ClosingNoteDialog() {
     if (!noteDialog) return
 
     setNote('')
+    setOtherDetails('')
     setClosingNoteStageId('')
 
     function handleKeyDown(event) {
@@ -72,10 +80,33 @@ export function ClosingNoteDialog() {
     ? formatElapsed(timeLog.startedAt, now)
     : formatTimeLogDuration(timeLog)
 
+  const selectedStage = closingNoteStages.find((s) => s._id === closingNoteStageId)
+  const needsOtherDetails = isOtherClosingNoteStage(selectedStage)
+  const trimmedOtherDetails = otherDetails.trim()
+  const otherDetailsMissing = needsOtherDetails && trimmedOtherDetails.length < 3
+
   const trimmedNote = note.trim()
   const noteTooShort = trimmedNote.length < 10
   const needsStage = timeLog.type !== 'break'
   const stageMissing = needsStage && !closingNoteStageId
+  const formInvalid = noteTooShort || stageMissing || otherDetailsMissing
+
+  function resetForm() {
+    setNote('')
+    setOtherDetails('')
+    setClosingNoteStageId('')
+  }
+
+  function handleStageChange(stageId) {
+    setClosingNoteStageId(stageId)
+    const nextStage = closingNoteStages.find((s) => s._id === stageId)
+    if (!isOtherClosingNoteStage(nextStage)) setOtherDetails('')
+  }
+
+  function buildClosingNote() {
+    if (!needsOtherDetails || !trimmedOtherDetails) return trimmedNote
+    return `Specific task: ${trimmedOtherDetails}\n\n${trimmedNote}`
+  }
 
   function handleCancel() {
     if (saving) return
@@ -84,42 +115,41 @@ export function ClosingNoteDialog() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (noteTooShort || stageMissing) return
+    if (formInvalid) return
+
+    const closingNote = buildClosingNote()
 
     if (mode === 'pending') {
       await submitPendingNote.mutateAsync({
-        closingNote: trimmedNote,
+        closingNote,
         ...(needsStage ? { closingNoteStageId } : {}),
         timeLogId: timeLog._id,
       })
-      setNote('')
-      setClosingNoteStageId('')
+      resetForm()
       return
     }
 
     if (mode === 'switch') {
       await completeTimerSwitch.mutateAsync({
         timeLog,
-        closingNote: trimmedNote,
+        closingNote,
         ...(needsStage ? { closingNoteStageId } : {}),
         pendingAction,
       })
-      setNote('')
-      setClosingNoteStageId('')
+      resetForm()
       return
     }
 
     // mode === 'stop' - stop the currently running session
     if (timeLog.type === 'task') {
       const taskId = timeLog.taskId?._id || timeLog.taskId
-      await stopTaskTimer.mutateAsync({ taskId, closingNote: trimmedNote, closingNoteStageId })
+      await stopTaskTimer.mutateAsync({ taskId, closingNote, closingNoteStageId })
     } else if (timeLog.type === 'break') {
-      await stopBreak.mutateAsync({ closingNote: trimmedNote })
+      await stopBreak.mutateAsync({ closingNote })
     } else if (timeLog.type === 'training') {
-      await stopTraining.mutateAsync({ closingNote: trimmedNote, closingNoteStageId })
+      await stopTraining.mutateAsync({ closingNote, closingNoteStageId })
     }
-    setNote('')
-    setClosingNoteStageId('')
+    resetForm()
   }
 
   return (
@@ -156,7 +186,7 @@ export function ClosingNoteDialog() {
               <SearchableSelect
                 id="closingNoteStageSearch"
                 value={closingNoteStageId}
-                onChange={setClosingNoteStageId}
+                onChange={handleStageChange}
                 options={closingNoteStages
                   .filter((s) => s.isActive !== false)
                   .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name))
@@ -165,6 +195,31 @@ export function ClosingNoteDialog() {
               />
               {stageMissing && (
                 <p className="mt-1 text-xs text-muted-foreground">Please select a stage before saving.</p>
+              )}
+            </div>
+          )}
+          {needsOtherDetails && (
+            <div>
+              <Label htmlFor="otherSpecificTask" required>
+                Specific task / reason
+              </Label>
+              <Textarea
+                id="otherSpecificTask"
+                rows={3}
+                required
+                minLength={3}
+                value={otherDetails}
+                onChange={(e) => setOtherDetails(e.target.value)}
+                placeholder="Describe the specific task you worked on…"
+                className="mt-1.5"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Required when stage is &ldquo;Other&rdquo; (minimum 3 characters)
+              </p>
+              {otherDetails.length > 0 && otherDetailsMissing && (
+                <p className="mt-1 text-xs text-destructive">
+                  Please enter at least 3 characters
+                </p>
               )}
             </div>
           )}
@@ -195,7 +250,7 @@ export function ClosingNoteDialog() {
             <Button type="button" variant="secondary" onClick={handleCancel} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving || noteTooShort || stageMissing}>
+            <Button type="submit" disabled={saving || formInvalid}>
               {saving ? 'Saving…' : mode === 'switch' ? 'Save & switch' : 'Save & continue'}
             </Button>
           </div>

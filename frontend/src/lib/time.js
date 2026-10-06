@@ -104,6 +104,12 @@ export function formatHoursVsBudget(loggedMinutes, budgetHours) {
   return `${logged} / ${budget}`
 }
 
+/** One-decimal hour label, e.g. 2.2h */
+export function formatHoursLabel(hours) {
+  const n = Math.round(Number(hours || 0) * 10) / 10
+  return `${n.toFixed(1)}h`
+}
+
 export function isOverBudget(loggedMinutes, budgetHours) {
   return (loggedMinutes || 0) > (budgetHours || 0) * 60
 }

@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Controller } from 'react-hook-form'
-import { CheckCircle2, Ban, Pencil, Play, Plus, Square } from 'lucide-react'
+import { CheckCircle2, Ban, Pencil, Play, Plus, Square, Share2 } from 'lucide-react'
 import { taskSchema } from '@/lib/schemas'
 import { useAppForm } from '@/hooks/useAppForm'
 import { usePermission } from '@/hooks/usePermissions'
-import { useTasks, useTaskMutations, useTimerActions, useRecurringCheck } from '@/hooks/useTimer'
+import {
+  useTasks,
+  useTask,
+  useTaskMutations,
+  useTimerActions,
+  useRecurringCheck,
+} from '@/hooks/useTimer'
 import { useClients, useServices, useStages, useUsers, useManagers } from '@/hooks/useMasters'
 import { useTimerStore } from '@/store/timerStore'
 import { DataTable } from '@/components/data-table/DataTable'
@@ -31,6 +37,7 @@ import { SuggestedTasksBanner } from '@/components/tasks/SuggestedTasksBanner'
 import {
   formatClockTime,
   formatElapsed,
+  formatHoursLabel,
   formatHoursVsBudget,
   isOverBudget,
   liveLoggedMinutes,
@@ -43,6 +50,12 @@ import {
   toDateInputValue,
 } from '@/lib/compliancePeriod'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/store/authStore'
+import {
+  ShareHoursDialog,
+  ReviewShareRequestDialog,
+} from '@/components/tasks/ShareHoursDialog'
+import { useShareRequests, useShareRequestMutations } from '@/hooks/useShareRequests'
 
 const FORM_ID = 'task-form'
 
@@ -160,17 +173,22 @@ function TimerSessionMeta({ startedAt, stoppedAt, running }) {
   if (!started && !stopped) return null
 
   return (
-    <p className="max-w-[140px] truncate text-[10px] font-medium leading-tight text-slate-500">
+    <span className="shrink-0 whitespace-nowrap text-[10px] font-medium leading-none text-slate-500">
       {running
         ? `Started ${started}`
         : stopped
           ? `${started} – ${stopped}`
           : `Started ${started}`}
-    </p>
+    </span>
   )
 }
 
-function LiveHours({ loggedMinutes, budgetHours, startedAt }) {
+function firstName(name) {
+  if (!name) return '—'
+  return String(name).trim().split(/\s+/)[0] || name
+}
+
+function LiveHours({ loggedMinutes, budgetHours, startedAt, task }) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (!startedAt) return undefined
@@ -183,9 +201,12 @@ function LiveHours({ loggedMinutes, budgetHours, startedAt }) {
   const live = Boolean(startedAt)
   const budgetMins = (budgetHours || 0) * 60
   const warn = !over && budgetMins > 0 && total / budgetMins >= 0.8
+  const shared = Boolean(task?.isShared && task?.helpingMemberId)
+  const assigneeName = firstName(task?.assigneeId?.name)
+  const helperName = firstName(task?.helpingMemberId?.name)
 
   return (
-    <span className="inline-flex h-full items-center">
+    <span className="inline-flex h-full flex-col justify-center gap-0.5 py-0.5">
       <span
         className={cn(
           'inline-flex h-5 max-w-full items-center gap-1 rounded px-1.5 text-xs font-bold leading-none tabular-nums',
@@ -205,11 +226,25 @@ function LiveHours({ loggedMinutes, budgetHours, startedAt }) {
         )}
         {formatHoursVsBudget(total, budgetHours)}
       </span>
+      {shared && (
+        <span
+          className="max-w-[11rem] truncate px-0.5 text-[10px] font-medium leading-tight text-indigo-700"
+          title={`${assigneeName}: ${formatHoursLabel(task.assigneeAllocatedHours)} | ${helperName}: ${formatHoursLabel(task.helperAllocatedHours)} (Shared)`}
+        >
+          {assigneeName}: {formatHoursLabel(task.assigneeAllocatedHours)}
+          {' | '}
+          {helperName}: {formatHoursLabel(task.helperAllocatedHours)}
+          {' '}
+          <span className="text-indigo-500">(Shared)</span>
+        </span>
+      )}
     </span>
   )
 }
 
 export default function TasksPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const openTaskId = searchParams.get('open')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [priority, setPriority] = useState('')
@@ -222,7 +257,12 @@ export default function TasksPage() {
   const [completeTask, setCompleteTask] = useState(null)
   const [ignoreTask, setIgnoreTask] = useState(null)
   const [statusDatePrompt, setStatusDatePrompt] = useState(null)
+  const [shareTask, setShareTask] = useState(null)
+  const [reviewShare, setReviewShare] = useState(null)
   const skipTargetAuto = useRef(false)
+  const openedFromQuery = useRef(null)
+
+  const user = useAuthStore((s) => s.user)
 
   const { allowed: canAdd } = usePermission('tasks', 'add')
   const { allowed: canEdit } = usePermission('tasks', 'edit')
@@ -245,12 +285,35 @@ export default function TasksPage() {
   )
 
   const { data = [], isLoading } = useTasks(filters)
+  const { data: openTask } = useTask(openTaskId)
+  // While a task sheet is open, poll so replies from another profile appear without reload
+  const liveTaskId = sheetOpen && editing?._id ? editing._id : null
+  const { data: liveTask } = useTask(liveTaskId, {
+    refetchInterval: liveTaskId ? 5_000 : false,
+    staleTime: 2_000,
+  })
   const { create, update, complete, ignore } = useTaskMutations()
   const { data: stages = [] } = useStages()
   const { data: users = [] } = useUsers()
   const { data: clients = [] } = useClients()
   const { data: services = [] } = useServices()
   const { data: managers = [] } = useManagers()
+  const { data: pendingShares = [] } = useShareRequests('pending', Boolean(user))
+  const {
+    create: createShare,
+    approve: approveShare,
+    reject: rejectShare,
+  } = useShareRequestMutations()
+
+  const reviewableShares = useMemo(() => {
+    if (!user?._id) return []
+    return (pendingShares || []).filter((r) => {
+      if (r.status && r.status !== 'pending') return false
+      const managerId = r.taskId?.managerId?._id || r.taskId?.managerId
+      if (user.role === 'super_admin' || user.role === 'owner') return true
+      return managerId && String(managerId) === String(user._id)
+    })
+  }, [pendingShares, user?._id, user?.role])
 
   const active = useTimerStore((s) => s.active)
   const { startTaskTimer, openNoteDialog } = useTimerActions()
@@ -394,6 +457,49 @@ export default function TasksPage() {
     setSheetOpen(true)
   }
 
+  useEffect(() => {
+    if (!openTaskId || !openTask || !services.length) return
+    // Allow reopening the same task from another notification click (open=id&t=…)
+    const openToken = searchParams.get('t') || openTaskId
+    if (openedFromQuery.current === openToken) return
+    openedFromQuery.current = openToken
+    openEdit(openTask)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('open')
+        next.delete('t')
+        return next
+      },
+      { replace: true }
+    )
+  }, [openTaskId, openTask, services.length, searchParams.get('t')])
+
+  // Sync new replies into the open sheet without resetting the form / full page reload
+  useEffect(() => {
+    if (!liveTask || !editing?._id) return
+    if (String(liveTask._id) !== String(editing._id)) return
+
+    const replySig = (points = []) =>
+      (points || [])
+        .map((p) => {
+          const replies = p.replies || []
+          const last = replies[replies.length - 1]
+          return `${p._id}:${replies.length}:${last?._id || last?.createdAt || ''}`
+        })
+        .join('|')
+
+    setEditing((prev) => {
+      if (!prev) return prev
+      if (replySig(prev.reviewPoints) === replySig(liveTask.reviewPoints)) return prev
+      return {
+        ...prev,
+        reviewPoints: liveTask.reviewPoints,
+        reviewPointsHistory: liveTask.reviewPointsHistory,
+      }
+    })
+  }, [liveTask])
+
   async function onSubmit(values) {
     const payload = {
       ...values,
@@ -465,29 +571,47 @@ export default function TasksPage() {
       {
         field: 'taskCode',
         headerName: 'Task ID',
-        width: 130,
+        width: 118,
+        maxWidth: 140,
         cellRenderer: (p) => <TaskIdCell value={p.value} />,
       },
       {
         headerName: 'Client',
-        flex: 1.4,
+        flex: 1.2,
+        minWidth: 120,
         cellClass: 'cell-emphasis',
         valueGetter: (p) => p.data.clientId?.organizationName || '-',
       },
       {
         field: 'title',
         headerName: 'Task',
-        flex: 2,
+        flex: 1.6,
+        minWidth: 140,
         cellClass: 'cell-emphasis',
       },
       {
         headerName: 'Staff',
-        flex: 1.2,
-        valueGetter: (p) => p.data.assigneeId?.name || '-',
+        width: 120,
+        maxWidth: 150,
+        cellRenderer: (p) => {
+          const name = p.data.assigneeId?.name || '-'
+          if (!p.data.isShared || !p.data.helpingMemberId?.name) {
+            return <span className="truncate">{name}</span>
+          }
+          return (
+            <span className="flex flex-col leading-tight">
+              <span className="truncate">{name}</span>
+              <span className="truncate text-[10px] font-medium text-indigo-600">
+                + {firstName(p.data.helpingMemberId.name)} (Shared)
+              </span>
+            </span>
+          )
+        },
       },
       {
         headerName: 'Status',
-        width: 130,
+        width: 120,
+        maxWidth: 150,
         cellRenderer: (p) => (
           <StatusBadge name={p.data.stageId?.name} color={p.data.stageId?.color} />
         ),
@@ -495,12 +619,14 @@ export default function TasksPage() {
       {
         field: 'priority',
         headerName: 'Priority',
-        width: 110,
+        width: 96,
+        maxWidth: 110,
         cellRenderer: (p) => <PriorityBadge priority={p.value} />,
       },
       {
         headerName: 'Hours',
-        width: 200,
+        width: 168,
+        maxWidth: 200,
         cellClass: 'tabular-nums',
         cellRenderer: (p) => {
           const runningHere =
@@ -511,6 +637,7 @@ export default function TasksPage() {
               loggedMinutes={p.data.totalLoggedMinutes}
               budgetHours={p.data.budgetHours}
               startedAt={runningHere ? active.startedAt : null}
+              task={p.data}
             />
           )
         },
@@ -518,19 +645,22 @@ export default function TasksPage() {
       {
         field: 'taskReceiveDate',
         headerName: 'Received',
-        width: 110,
+        width: 100,
+        maxWidth: 110,
         cellRenderer: (p) => <DateCell value={p.value} />,
       },
       {
         field: 'targetDate',
         headerName: 'Target',
-        width: 110,
+        width: 100,
+        maxWidth: 110,
         cellRenderer: (p) => <DateCell value={p.value} tone="ok" />,
       },
       {
         field: 'dueDate',
         headerName: 'Due Date',
-        width: 110,
+        width: 100,
+        maxWidth: 110,
         cellRenderer: (p) => {
           const closed = isClosedTask(p.data)
           const tone = closed ? 'muted' : dueStatus(p.value)
@@ -540,13 +670,15 @@ export default function TasksPage() {
       {
         field: 'createdAt',
         headerName: 'Created',
-        width: 110,
+        width: 100,
+        maxWidth: 110,
         cellRenderer: (p) => <DateCell value={p.value} />,
       },
       {
         headerName: 'Timer',
-        width: 168,
-        minWidth: 150,
+        width: 150,
+        maxWidth: 170,
+        minWidth: 130,
         sortable: false,
         cellRenderer: (p) => {
           const closed = isClosedTask(p.data)
@@ -559,7 +691,7 @@ export default function TasksPage() {
 
           if (closed) {
             return (
-              <div className="flex h-full flex-col justify-center gap-0.5">
+              <div className="flex h-full items-center gap-1.5">
                 <span className="text-xs font-semibold text-slate-500">
                   {p.data.completedAt ? 'Completed' : 'Ignored'}
                 </span>
@@ -570,12 +702,14 @@ export default function TasksPage() {
 
           if (!canEdit) {
             return runningHere ? (
-              <div className="flex h-full flex-col justify-center gap-0.5">
+              <div className="flex h-full items-center gap-1.5">
                 <LiveTimer startedAt={active.startedAt} />
                 <TimerSessionMeta startedAt={startedAt} running />
               </div>
             ) : (
-              <TimerSessionMeta startedAt={startedAt} stoppedAt={stoppedAt} />
+              <div className="flex h-full items-center">
+                <TimerSessionMeta startedAt={startedAt} stoppedAt={stoppedAt} />
+              </div>
             )
           }
 
@@ -589,10 +723,8 @@ export default function TasksPage() {
                 >
                   <Square className="size-3 fill-current" />
                 </IconButton>
-                <div className="min-w-0">
-                  <LiveTimer startedAt={active.startedAt} />
-                  <TimerSessionMeta startedAt={startedAt} running />
-                </div>
+                <LiveTimer startedAt={active.startedAt} />
+                <TimerSessionMeta startedAt={startedAt} running />
               </div>
             )
           }
@@ -614,13 +746,27 @@ export default function TasksPage() {
       },
       {
         headerName: 'Actions',
-        width: 128,
+        width: 140,
+        maxWidth: 152,
         minWidth: 120,
         sortable: false,
+        pinned: 'right',
         cellRenderer: (p) => {
           const closed = isClosedTask(p.data)
+          const assigneeId = String(p.data.assigneeId?._id || p.data.assigneeId || '')
+          const isAssignee = user?._id && assigneeId === String(user._id)
+          const canShare = canEdit && isAssignee && !closed && !p.data.isShared
           return (
             <div className="flex h-full items-center gap-1">
+              {canShare && (
+                <IconButton
+                  title="Share remaining hours"
+                  onClick={() => setShareTask(p.data)}
+                  className="text-indigo-600 hover:bg-indigo-50"
+                >
+                  <Share2 className="size-3.5" />
+                </IconButton>
+              )}
               {canEdit && (
                 <IconButton
                   title="Edit"
@@ -653,7 +799,7 @@ export default function TasksPage() {
         },
       },
     ],
-    [canEdit, canComplete, canIgnore, active, startTaskTimer, openNoteDialog]
+    [canEdit, canComplete, canIgnore, active, startTaskTimer, openNoteDialog, user?._id]
   )
 
   const emptyMasters = !clients.length || !stages.length
@@ -713,14 +859,64 @@ export default function TasksPage() {
 
       <SuggestedTasksBanner />
 
+      {reviewableShares.length > 0 && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-4 py-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-indigo-900">
+              Pending hour-share requests ({reviewableShares.length})
+            </p>
+          </div>
+          <ul className="space-y-2">
+            {reviewableShares.map((req) => (
+              <li
+                key={req._id}
+                className="flex flex-col gap-2 rounded-lg border border-indigo-100 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0 text-sm">
+                  <p className="truncate font-medium text-slate-900">
+                    {req.taskId?.taskCode ? `${req.taskId.taskCode} — ` : ''}
+                    {req.taskId?.title || 'Task'}
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    {req.requestedById?.name || 'Someone'} → {req.toUserId?.name || 'Member'} ·{' '}
+                    <span className="tabular-nums">
+                      {Number(req.keepHours).toFixed(1)}h / {Number(req.transferHours).toFixed(1)}h
+                    </span>
+                  </p>
+                  {req.requesterComment ? (
+                    <p className="mt-0.5 text-xs text-slate-500">“{req.requesterComment}”</p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-red-600 hover:bg-red-50"
+                    onClick={() => setReviewShare({ request: req, decision: 'reject' })}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => setReviewShare({ request: req, decision: 'approve' })}
+                  >
+                    Approve
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <FilterBar search={search} onSearchChange={setSearch} placeholder="Search task ID, title, or client…">
-        <Select value={lifecycle} onChange={(e) => setLifecycle(e.target.value)} className="w-36">
+        <Select value={lifecycle} onChange={(e) => setLifecycle(e.target.value)} className="w-[8.5rem] shrink-0">
           <option value="open">Open</option>
           <option value="completed">Completed</option>
           <option value="ignored">Ignored</option>
           <option value="all">All</option>
         </Select>
-        <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-40">
+        <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-[9.5rem] shrink-0">
           <option value="">All statuses</option>
           {[...stages]
             .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name))
@@ -730,13 +926,13 @@ export default function TasksPage() {
               </option>
             ))}
         </Select>
-        <Select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-36">
+        <Select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-[8.5rem] shrink-0">
           <option value="">All priorities</option>
           <option value="low">Low</option>
           <option value="medium">Medium</option>
           <option value="high">High</option>
         </Select>
-        <Select value={staffId} onChange={(e) => setStaffId(e.target.value)} className="w-40">
+        <Select value={staffId} onChange={(e) => setStaffId(e.target.value)} className="w-[9.5rem] shrink-0">
           <option value="">All staff</option>
           {[...users]
             .sort((a, b) => a.name.localeCompare(b.name))
@@ -746,22 +942,32 @@ export default function TasksPage() {
               </option>
             ))}
         </Select>
-        <Input
-          type="date"
-          value={targetFrom}
-          onChange={(e) => setTargetFrom(e.target.value)}
-          className="w-36"
-          title="Target date from"
-          aria-label="Target date from"
-        />
-        <Input
-          type="date"
-          value={targetTo}
-          onChange={(e) => setTargetTo(e.target.value)}
-          className="w-36"
-          title="Target date to"
-          aria-label="Target date to"
-        />
+        <div className="flex min-w-0 shrink-0 items-center gap-2">
+          <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
+            Target
+          </span>
+          <Input
+            type="date"
+            value={targetFrom}
+            onChange={(e) => setTargetFrom(e.target.value)}
+            className="w-[9.75rem]"
+            title="Target date from"
+            aria-label="Target date from"
+            ukSpellcheck={false}
+          />
+          <span className="text-xs text-muted-foreground" aria-hidden>
+            –
+          </span>
+          <Input
+            type="date"
+            value={targetTo}
+            onChange={(e) => setTargetTo(e.target.value)}
+            className="w-[9.75rem]"
+            title="Target date to"
+            aria-label="Target date to"
+            ukSpellcheck={false}
+          />
+        </div>
       </FilterBar>
 
       <DataTable
@@ -1114,6 +1320,11 @@ export default function TasksPage() {
             disabled={editing ? !canEdit : !canAdd}
             history={editing?.reviewPointsHistory || []}
             users={assignees}
+            taskId={editing?._id}
+            savedPoints={editing?.reviewPoints || []}
+            onTaskUpdated={(task) => {
+              if (task) setEditing(task)
+            }}
           />
         </form>
       </Sheet>
@@ -1137,6 +1348,35 @@ export default function TasksPage() {
         onConfirm={async ({ ignoreDate, remarks }) => {
           await ignore.mutateAsync({ id: ignoreTask._id, ignoreDate, remarks })
           setIgnoreTask(null)
+        }}
+      />
+
+      <ShareHoursDialog
+        open={!!shareTask}
+        task={shareTask}
+        users={assignees}
+        loading={createShare.isPending}
+        onCancel={() => setShareTask(null)}
+        onConfirm={async (payload) => {
+          await createShare.mutateAsync({ taskId: shareTask._id, ...payload })
+          setShareTask(null)
+        }}
+      />
+
+      <ReviewShareRequestDialog
+        open={!!reviewShare}
+        request={reviewShare?.request}
+        decision={reviewShare?.decision}
+        loading={approveShare.isPending || rejectShare.isPending}
+        onCancel={() => setReviewShare(null)}
+        onConfirm={async ({ managerComment }) => {
+          const requestId = reviewShare.request._id
+          if (reviewShare.decision === 'approve') {
+            await approveShare.mutateAsync({ requestId, managerComment })
+          } else {
+            await rejectShare.mutateAsync({ requestId, managerComment })
+          }
+          setReviewShare(null)
         }}
       />
 

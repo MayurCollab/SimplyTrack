@@ -51,6 +51,7 @@ export function SearchableSelect({
         }}
         placeholder={placeholder}
         disabled={disabled}
+        ukSpellcheck={false}
       />
       {showDropdown && (
         <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-44 overflow-y-auto rounded-lg border border-border bg-white p-1 shadow-lg">

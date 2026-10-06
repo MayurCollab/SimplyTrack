@@ -35,7 +35,7 @@ const DEFAULT_CLOSING_NOTE_STAGES = [
   'Initial Review',
   'Investment',
   'Opening balance adjustment',
-  'Other (Ask to write Specific Task on own)',
+  'Other (Write Specific Task on your own)',
   'Other Debtors schedule',
   'Payroll',
   'Prepayment',
@@ -53,6 +53,17 @@ function normalizedStageName(value) {
     .replace(/\s*&\s*/g, '&')
     .trim();
 }
+
+/** Treat near-duplicate "Other (...)" closing-note labels as one stage. */
+function closingStageDedupeKey(name) {
+  const normalized = normalizedStageName(name);
+  if (!normalized) return '';
+  // Only collapse "Other (...)" variants — not names like "Other Debtors schedule".
+  if (/^other\s*\(/.test(normalized)) return 'other';
+  return normalized;
+}
+
+const CANONICAL_OTHER_CLOSING_STAGE = 'Other (Write Specific Task on your own)';
 
 async function seedDefaultStages(organizationId) {
   await StageMaster.updateMany(
@@ -136,15 +147,32 @@ async function seedDefaultStages(organizationId) {
     stageType: 'closing_note',
   }).sort({ createdAt: 1 });
 
-  const seenClosing = new Set();
+  const seenClosing = new Map();
   for (const stage of closingStages) {
-    const key = normalizedStageName(stage.name);
+    const key = closingStageDedupeKey(stage.name);
     if (!key) continue;
-    if (seenClosing.has(key)) {
-      await StageMaster.deleteOne({ _id: stage._id });
+
+    const existing = seenClosing.get(key);
+    if (!existing) {
+      seenClosing.set(key, stage);
       continue;
     }
-    seenClosing.add(key);
+
+    // Prefer the canonical "Other (Write Specific Task on your own)" label when collapsing.
+    const existingIsCanonical =
+      key === 'other' &&
+      normalizedStageName(existing.name) === normalizedStageName(CANONICAL_OTHER_CLOSING_STAGE);
+    const currentIsCanonical =
+      key === 'other' &&
+      normalizedStageName(stage.name) === normalizedStageName(CANONICAL_OTHER_CLOSING_STAGE);
+
+    if (currentIsCanonical && !existingIsCanonical) {
+      await StageMaster.deleteOne({ _id: existing._id });
+      seenClosing.set(key, stage);
+      continue;
+    }
+
+    await StageMaster.deleteOne({ _id: stage._id });
   }
 
   const latestClosing = await StageMaster.find({
@@ -152,12 +180,12 @@ async function seedDefaultStages(organizationId) {
     stageType: 'closing_note',
   }).lean();
   const closingByNormalized = new Map(
-    latestClosing.map((stage) => [normalizedStageName(stage.name), stage])
+    latestClosing.map((stage) => [closingStageDedupeKey(stage.name), stage])
   );
 
   for (const [index, name] of DEFAULT_CLOSING_NOTE_STAGES.entries()) {
-    const normalized = normalizedStageName(name);
-    const match = closingByNormalized.get(normalized);
+    const key = closingStageDedupeKey(name);
+    const match = closingByNormalized.get(key);
     if (match) {
       await StageMaster.updateOne(
         { _id: match._id },
