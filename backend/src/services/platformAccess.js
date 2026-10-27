@@ -1,7 +1,7 @@
 const Organization = require('../models/Organization');
 const User = require('../models/User');
 
-const SEED_EMAIL = 'mayur.kumadra@collabsoftech.com';
+const SEED_EMAIL = 'mayur.kumadra@collabsoftech.com.au';
 
 const PERSON_FIELDS = [
   'createdBy',
