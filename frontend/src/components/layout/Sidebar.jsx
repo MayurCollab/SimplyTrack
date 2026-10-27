@@ -13,11 +13,18 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
+  Landmark,
+  UserCog,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import { usePermissions } from '@/hooks/usePermissions'
 import { Logo } from '@/components/shared/Logo'
+
+const PLATFORM_ITEMS = [
+  { to: '/organizations', label: 'Organizations', icon: Landmark },
+  { to: '/admins', label: 'Admins', icon: UserCog },
+]
 
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -127,10 +134,14 @@ export function Sidebar() {
     return () => window.clearTimeout(timer)
   }, [isAnimating, collapsed])
 
-  const items = NAV_ITEMS.filter((item) => {
-    if (item.module && !can(item.module, 'view')) return false
-    return true
-  })
+  const inFirm = !user?.isSuperAdmin || Boolean(user?.actingOrganizationId)
+  const firmItems = inFirm
+    ? NAV_ITEMS.filter((item) => {
+        if (item.module && !can(item.module, 'view')) return false
+        return true
+      })
+    : []
+  const items = [...(user?.isSuperAdmin ? PLATFORM_ITEMS : []), ...firmItems]
 
   const userInitials = user?.name
     ? user.name

@@ -9,6 +9,7 @@ import { verifyOtpSchema } from '@/lib/schemas'
 import { useAppForm } from '@/hooks/useAppForm'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/lib/api'
+import { homePath } from '@/lib/homePath'
 import { Logo } from '@/components/shared/Logo'
 
 export default function VerifyOtpPage() {
@@ -47,7 +48,7 @@ export default function VerifyOtpPage() {
       })
       setAuth({ user: data.user, accessToken: data.accessToken })
       toast.success('Verified successfully')
-      navigate('/dashboard', { replace: true })
+      navigate(homePath(data.user), { replace: true })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Verification failed')
     }

@@ -20,6 +20,7 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { FilterBar } from '@/components/data-table/FilterBar'
 import { PriorityBadge, StatusBadge } from '@/components/shared/StatusBadge'
 import { Button } from '@/components/ui/button'
+import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { FormField, FormRow } from '@/components/ui/form-field'
@@ -42,7 +43,7 @@ import {
   isOverBudget,
   liveLoggedMinutes,
 } from '@/lib/time'
-import { addBusinessDays } from '@/lib/businessDays'
+import { computeTargetDate } from '@/lib/businessDays'
 import {
   buildTaskTitle,
   formatCompliancePeriodValue,
@@ -109,7 +110,7 @@ function IconButton({ title, onClick, className, children, disabled }) {
         onClick?.(e)
       }}
       className={cn(
-        'inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-50',
+        'inline-flex size-6 shrink-0 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-50',
         className
       )}
     >
@@ -148,7 +149,7 @@ function DateCell({ value, tone = 'muted' }) {
 function TaskIdCell({ value }) {
   if (!value) return <span className="text-muted-foreground">-</span>
   return (
-    <span className="inline-flex items-center rounded-md bg-indigo-50 px-1.5 py-0.5 font-mono text-xs font-bold tracking-tight text-indigo-700 ring-1 ring-indigo-100">
+    <span className="inline-flex items-center rounded-md bg-indigo-50 px-1.5 py-px font-mono text-[11px] font-bold leading-none tracking-tight text-indigo-700 ring-1 ring-indigo-100">
       {value}
     </span>
   )
@@ -206,10 +207,10 @@ function LiveHours({ loggedMinutes, budgetHours, startedAt, task }) {
   const helperName = firstName(task?.helpingMemberId?.name)
 
   return (
-    <span className="inline-flex h-full flex-col justify-center gap-0.5 py-0.5">
+    <span className="inline-flex h-full flex-col justify-center gap-px leading-none">
       <span
         className={cn(
-          'inline-flex h-5 max-w-full items-center gap-1 rounded px-1.5 text-xs font-bold leading-none tabular-nums',
+          'inline-flex h-[18px] max-w-full items-center gap-1 rounded px-1.5 text-[11px] font-bold leading-none tabular-nums',
           !live && !over && !warn && 'text-slate-800',
           warn && !live && 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
           live && !over && 'border border-emerald-200 bg-emerald-50 text-emerald-800',
@@ -228,7 +229,7 @@ function LiveHours({ loggedMinutes, budgetHours, startedAt, task }) {
       </span>
       {shared && (
         <span
-          className="max-w-[11rem] truncate px-0.5 text-[10px] font-medium leading-tight text-indigo-700"
+          className="max-w-[11rem] truncate px-0.5 text-[10px] font-medium leading-none text-indigo-700"
           title={`${assigneeName}: ${formatHoursLabel(task.assigneeAllocatedHours)} | ${helperName}: ${formatHoursLabel(task.helperAllocatedHours)} (Shared)`}
         >
           {assigneeName}: {formatHoursLabel(task.assigneeAllocatedHours)}
@@ -335,6 +336,8 @@ export default function TasksPage() {
   const serviceId = form.watch('serviceId')
   const compliancePeriodInput = form.watch('compliancePeriodInput')
   const taskReceiveDate = form.watch('taskReceiveDate')
+  const querySentDate = form.watch('querySentDate')
+  const replyReceivedDate = form.watch('replyReceivedDate')
   const assigneeId = form.watch('assigneeId')
   const isRecurring = form.watch('isRecurring')
 
@@ -383,9 +386,22 @@ export default function TasksPage() {
     }
     const service = services.find((s) => s._id === serviceId)
     if (!service) return
-    const computed = addBusinessDays(taskReceiveDate, service.turnaroundBusinessDays ?? 0)
+    const computed = computeTargetDate({
+      receiveDate: taskReceiveDate,
+      turnaroundBusinessDays: service.turnaroundBusinessDays ?? 0,
+      querySentDate,
+      replyReceivedDate,
+    })
     if (computed) form.setValue('targetDate', computed)
-  }, [taskReceiveDate, serviceId, services, sheetOpen, form])
+  }, [
+    taskReceiveDate,
+    querySentDate,
+    replyReceivedDate,
+    serviceId,
+    services,
+    sheetOpen,
+    form,
+  ])
 
   const selectedClient = clients.find((c) => c._id === clientId)
   const selectedService = services.find((s) => s._id === serviceId)
@@ -599,9 +615,9 @@ export default function TasksPage() {
             return <span className="truncate">{name}</span>
           }
           return (
-            <span className="flex flex-col leading-tight">
-              <span className="truncate">{name}</span>
-              <span className="truncate text-[10px] font-medium text-indigo-600">
+            <span className="flex flex-col gap-px leading-none">
+              <span className="truncate text-[13px] leading-none">{name}</span>
+              <span className="truncate text-[10px] font-medium leading-none text-indigo-600">
                 + {firstName(p.data.helpingMemberId.name)} (Shared)
               </span>
             </span>
@@ -942,32 +958,18 @@ export default function TasksPage() {
               </option>
             ))}
         </Select>
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
-          <span className="hidden text-xs font-medium text-muted-foreground sm:inline">
-            Target
-          </span>
-          <Input
-            type="date"
-            value={targetFrom}
-            onChange={(e) => setTargetFrom(e.target.value)}
-            className="w-[9.75rem]"
-            title="Target date from"
-            aria-label="Target date from"
-            ukSpellcheck={false}
-          />
-          <span className="text-xs text-muted-foreground" aria-hidden>
-            –
-          </span>
-          <Input
-            type="date"
-            value={targetTo}
-            onChange={(e) => setTargetTo(e.target.value)}
-            className="w-[9.75rem]"
-            title="Target date to"
-            aria-label="Target date to"
-            ukSpellcheck={false}
-          />
-        </div>
+        <DateRangePicker
+          label="Target"
+          from={targetFrom}
+          to={targetTo}
+          onChange={({ from, to }) => {
+            setTargetFrom(from)
+            setTargetTo(to)
+          }}
+          placeholder="Any date"
+          align="right"
+          className="min-w-[15.5rem]"
+        />
       </FilterBar>
 
       <DataTable
@@ -975,7 +977,12 @@ export default function TasksPage() {
         rowData={data}
         loading={isLoading}
         height={520}
-        rowHeight={52}
+        rowHeight={36}
+        headerHeight={36}
+        getRowHeight={(params) => {
+          const shared = Boolean(params.data?.isShared && params.data?.helpingMemberId)
+          return shared ? 42 : 36
+        }}
         getRowClass={(params) => {
           if (!params.data || isClosedTask(params.data)) return undefined
           const tone = dueStatus(params.data.dueDate)
@@ -1255,7 +1262,8 @@ export default function TasksPage() {
               />
               {!canEditTarget && (
                 <p className="text-xs text-muted-foreground">
-                  Auto-calculated from receive date + service turnaround.
+                  Auto: receive + service TAT (business days). Pauses on Query
+                  Sent; resumes after Reply Received (skips Sat/Sun).
                 </p>
               )}
             </FormField>

@@ -6,6 +6,7 @@ const {
   notifyHourShareRequested,
   notifyHourShareDecision,
 } = require('../services/notifications');
+const { maskActors, visibleActorName } = require('../services/platformAccess');
 
 const POPULATE = [
   { path: 'taskId', select: 'taskCode title budgetHours assigneeId helpingMemberId managerId isShared' },
@@ -102,7 +103,7 @@ async function create(req, res, next) {
     await notifyHourShareRequested({
       organizationId: orgId,
       actorId: userId,
-      actorName: req.user.name,
+      actorName: visibleActorName(req.user, orgId),
       task,
       shareRequest,
       toUserName: toUser.name,
@@ -113,7 +114,7 @@ async function create(req, res, next) {
       .lean();
 
     res.status(201).json({
-      data: populated,
+      data: await maskActors(populated),
       message: 'Share request sent to manager',
     });
   } catch (err) {
@@ -152,7 +153,7 @@ async function list(req, res, next) {
       });
     }
 
-    res.json({ data: requests });
+    res.json({ data: await maskActors(requests) });
   } catch (err) {
     next(err);
   }
@@ -202,7 +203,7 @@ async function review(req, res, next, decision) {
     await notifyHourShareDecision({
       organizationId: orgId,
       actorId: req.user._id,
-      actorName: req.user.name,
+      actorName: visibleActorName(req.user, orgId),
       task,
       shareRequest,
       decision,
@@ -214,7 +215,7 @@ async function review(req, res, next, decision) {
       .lean();
 
     res.json({
-      data: populated,
+      data: await maskActors(populated),
       message: decision === 'approved' ? 'Share request approved' : 'Share request rejected',
     });
   } catch (err) {

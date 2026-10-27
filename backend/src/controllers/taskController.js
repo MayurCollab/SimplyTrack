@@ -43,6 +43,7 @@ const {
   notifyNewTaskMentions,
   notifyReviewPointReply,
 } = require('../services/notifications');
+const { maskActors, visibleActorName } = require('../services/platformAccess');
 
 const POPULATE = [
   { path: 'clientId', select: 'organizationName email' },
@@ -192,7 +193,7 @@ async function list(req, res, next) {
       });
     }
 
-    res.json({ data: result });
+    res.json({ data: await maskActors(result) });
   } catch (err) {
     next(err);
   }
@@ -215,7 +216,7 @@ async function getOne(req, res, next) {
       .sort({ startedAt: -1 })
       .lean();
 
-    res.json({ data: { ...task, timeLogs: logs } });
+    res.json({ data: await maskActors({ ...task, timeLogs: logs }) });
   } catch (err) {
     next(err);
   }
@@ -314,7 +315,12 @@ async function create(req, res, next) {
     }
 
     const receiveDate = new Date(taskReceiveDate);
-    const computedTarget = computeTargetDate(receiveDate, service.turnaroundBusinessDays);
+    const computedTarget = computeTargetDate({
+      receiveDate,
+      turnaroundBusinessDays: service.turnaroundBusinessDays,
+      querySentDate: parsedQuerySent,
+      replyReceivedDate: parsedReplyReceived,
+    });
     let finalTarget = computedTarget;
     if (targetDate != null && canEditTargetDate(req)) {
       finalTarget = new Date(targetDate);
@@ -386,13 +392,13 @@ async function create(req, res, next) {
     await notifyNewTaskMentions({
       organizationId: orgId,
       actorId: req.user._id,
-      actorName: req.user.name,
+      actorName: visibleActorName(req.user, orgId),
       task,
       previousMentions: new Set(),
     });
 
     const populated = await Task.findById(task._id).populate(POPULATE).lean();
-    res.status(201).json({ data: populated, message: 'Task created' });
+    res.status(201).json({ data: await maskActors(populated), message: 'Task created' });
   } catch (err) {
     next(err);
   }
@@ -565,14 +571,19 @@ async function update(req, res, next) {
 
     const service = await ServiceMaster.findById(task.serviceId);
     const receiveOrServiceChanged = taskReceiveDate != null || serviceId != null;
+    const holdDatesChanged =
+      querySentDate !== undefined || replyReceivedDate !== undefined;
+    const shouldRecomputeTarget = receiveOrServiceChanged || holdDatesChanged;
 
     if (targetDate != null && canEditTargetDate(req)) {
       task.targetDate = new Date(targetDate);
-    } else if (receiveOrServiceChanged && service && task.taskReceiveDate) {
-      task.targetDate = computeTargetDate(
-        task.taskReceiveDate,
-        service.turnaroundBusinessDays
-      );
+    } else if (shouldRecomputeTarget && service && task.taskReceiveDate) {
+      task.targetDate = computeTargetDate({
+        receiveDate: task.taskReceiveDate,
+        turnaroundBusinessDays: service.turnaroundBusinessDays,
+        querySentDate: task.querySentDate,
+        replyReceivedDate: task.replyReceivedDate,
+      });
     }
 
     if (dueDate == null && task.targetDate) {
@@ -606,14 +617,14 @@ async function update(req, res, next) {
       await notifyNewTaskMentions({
         organizationId: orgId,
         actorId: req.user._id,
-        actorName: req.user.name,
+        actorName: visibleActorName(req.user, orgId),
         task,
         previousMentions,
       });
     }
 
     const populated = await Task.findById(task._id).populate(POPULATE).lean();
-    res.json({ data: populated, message: 'Task updated' });
+    res.json({ data: await maskActors(populated), message: 'Task updated' });
   } catch (err) {
     next(err);
   }
@@ -724,7 +735,7 @@ async function stopTimer(req, res, next) {
         );
         const task = await Task.findById(req.params.id).populate(POPULATE).lean();
         return res.json({
-          data: { timeLog: completed, task },
+          data: { timeLog: completed, task: await maskActors(task) },
           message: 'Timer stopped',
         });
       }
@@ -742,7 +753,7 @@ async function stopTimer(req, res, next) {
     await recomputeTaskLoggedMinutes(open.taskId);
     const task = await Task.findById(open.taskId).populate(POPULATE).lean();
 
-    res.json({ data: { timeLog: open, task }, message: 'Timer stopped' });
+    res.json({ data: { timeLog: open, task: await maskActors(task) }, message: 'Timer stopped' });
   } catch (err) {
     next(err);
   }
@@ -784,7 +795,7 @@ async function complete(req, res, next) {
     await task.save();
 
     const populated = await Task.findById(task._id).populate(POPULATE).lean();
-    res.json({ data: populated, message: 'Task completed' });
+    res.json({ data: await maskActors(populated), message: 'Task completed' });
   } catch (err) {
     next(err);
   }
@@ -831,7 +842,7 @@ async function ignore(req, res, next) {
     await task.save();
 
     const populated = await Task.findById(task._id).populate(POPULATE).lean();
-    res.json({ data: populated, message: 'Task ignored' });
+    res.json({ data: await maskActors(populated), message: 'Task ignored' });
   } catch (err) {
     next(err);
   }
@@ -856,7 +867,7 @@ async function replyReviewPoint(req, res, next) {
 
     point.replies.push({
       authorId: req.user._id,
-      authorName: req.user.name || '',
+      authorName: visibleActorName(req.user, orgId),
       message,
       createdAt: new Date(),
     });
@@ -867,7 +878,7 @@ async function replyReviewPoint(req, res, next) {
     notifyReviewPointReply({
       organizationId: orgId,
       actorId: req.user._id,
-      actorName: req.user.name,
+      actorName: visibleActorName(req.user, orgId),
       task,
       point,
       replyMessage: message,
@@ -876,7 +887,7 @@ async function replyReviewPoint(req, res, next) {
     });
 
     const populated = await Task.findById(task._id).populate(POPULATE).lean();
-    res.status(201).json({ data: populated, message: 'Reply added' });
+    res.status(201).json({ data: await maskActors(populated), message: 'Reply added' });
   } catch (err) {
     next(err);
   }
@@ -906,7 +917,7 @@ async function acceptSuggestionHandler(req, res, next) {
     const orgId = orgFilter(req.user).organizationId;
     const task = await acceptSuggestion(req.params.id, orgId, req.user._id);
     const populated = await Task.findById(task._id).populate(POPULATE).lean();
-    res.status(201).json({ data: populated, message: 'Suggested task created' });
+    res.status(201).json({ data: await maskActors(populated), message: 'Suggested task created' });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ message: err.message });
     next(err);

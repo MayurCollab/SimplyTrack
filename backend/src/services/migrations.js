@@ -7,6 +7,7 @@ const { MODULES } = require('../models/Permission');
 const { seedDefaultStages } = require('./stages');
 const { seedDefaultAlerts } = require('./alerts');
 const { ensurePermissionsForOrg } = require('./permissions');
+const { ensureSeedSuperAdmin } = require('./platformAccess');
 const { generateTaskCode } = require('./taskCode');
 const {
   inferCompliancePeriodInput,
@@ -225,6 +226,7 @@ async function migrateSettingsDefaults() {
 }
 
 async function runStartupMigrations() {
+  await ensureSeedSuperAdmin();
   await migratePermissions();
   await migrateServiceDefaults();
   await migrateSettingsDefaults();

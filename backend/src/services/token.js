@@ -39,12 +39,18 @@ function clearRefreshCookie(res) {
   });
 }
 
-function authPayload(user) {
+function authPayload(user, options = {}) {
+  const acting =
+    user.isSuperAdmin && options.actingOrganizationId
+      ? String(options.actingOrganizationId)
+      : null;
+
   return {
     sub: user._id.toString(),
     role: user.role,
     organizationId: user.organizationId ? user.organizationId.toString() : null,
     email: user.email,
+    actingOrganizationId: acting,
   };
 }
 

@@ -12,8 +12,10 @@ export function DataTable({
   loading,
   onRowClicked,
   getRowClass,
+  getRowHeight,
   height = 480,
   rowHeight = 38,
+  headerHeight = 40,
 }) {
   const defaultColDef = useMemo(
     () => ({
@@ -42,8 +44,9 @@ export function DataTable({
         suppressCellFocus
         onRowClicked={onRowClicked}
         getRowClass={getRowClass}
+        getRowHeight={getRowHeight}
         rowHeight={rowHeight}
-        headerHeight={40}
+        headerHeight={headerHeight}
         overlayLoadingTemplate='<span class="text-sm text-muted-foreground">Loading…</span>'
         overlayNoRowsTemplate='<span class="text-sm text-muted-foreground">No rows to show</span>'
       />

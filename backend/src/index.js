@@ -22,6 +22,7 @@ const taskShareRequestRoutes = require('./routes/taskShareRequests');
 const settingsRoutes = require('./routes/settings');
 const reportRoutes = require('./routes/reports');
 const dashboardRoutes = require('./routes/dashboard');
+const platformRoutes = require('./routes/platform');
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/platform', platformRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

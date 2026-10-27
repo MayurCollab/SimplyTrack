@@ -1,7 +1,7 @@
 const TimeLog = require('../models/TimeLog');
 const StageMaster = require('../models/StageMaster');
 const Settings = require('../models/Settings');
-const { orgFilter } = require('../utils/orgScope');
+const { orgFilter, getOrgId } = require('../utils/orgScope');
 const {
   getOpenSession,
   getPendingNoteSession,
@@ -29,8 +29,9 @@ async function getActive(req, res, next) {
     let breakMinutesToday = 0;
     let dailyBreakHours = 1;
 
-    if (req.user.organizationId) {
-      const settings = await Settings.findOne({ organizationId: req.user.organizationId }).lean();
+    const orgId = getOrgId(req.user);
+    if (orgId) {
+      const settings = await Settings.findOne({ organizationId: orgId }).lean();
       dailyBreakHours = settings?.dailyBreakHours ?? 1;
 
       const startOfDay = new Date();

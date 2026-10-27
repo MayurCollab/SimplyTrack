@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -12,6 +13,18 @@ import { Logo } from '@/components/shared/Logo'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+
+  useEffect(() => {
+    try {
+      const notice = sessionStorage.getItem('simplytrack-auth-notice')
+      if (!notice) return
+      sessionStorage.removeItem('simplytrack-auth-notice')
+      toast.error(notice)
+    } catch {
+      // ignore storage errors
+    }
+  }, [])
+
   const {
     register,
     handleSubmit,

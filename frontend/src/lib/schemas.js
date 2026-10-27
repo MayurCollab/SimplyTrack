@@ -125,6 +125,11 @@ export const taskSchema = z
     }
   })
 
+export const platformAdminSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required'),
+  email: requiredEmail,
+})
+
 export const projectSchema = z.object({
   name: z.string().trim().min(1, 'Project name is required'),
   clientId: z.string().min(1, 'Client is required'),

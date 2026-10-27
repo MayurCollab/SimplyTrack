@@ -14,6 +14,7 @@ const {
   clearRefreshCookie,
   authPayload,
 } = require('../services/token');
+const { organizationBlockMessage, buildSessionUser } = require('../services/platformAccess');
 
 async function register(req, res, next) {
   try {
@@ -85,6 +86,11 @@ async function login(req, res, next) {
       return res.status(404).json({ message: 'No active account found for this email' });
     }
 
+    const block = await organizationBlockMessage(user);
+    if (block) {
+      return res.status(403).json({ message: block });
+    }
+
     const otpResult = await createAndSendOtp({
       email,
       purpose: 'login',
@@ -120,6 +126,11 @@ async function verifyOtpHandler(req, res, next) {
       return res.status(404).json({ message: 'User not found or inactive' });
     }
 
+    const block = await organizationBlockMessage(user);
+    if (block) {
+      return res.status(403).json({ message: block });
+    }
+
     user.lastLoginAt = new Date();
     await user.save();
 
@@ -128,21 +139,10 @@ async function verifyOtpHandler(req, res, next) {
     const refreshToken = signRefreshToken(payload);
     setRefreshCookie(res, refreshToken);
 
-    const organization = user.organizationId
-      ? await Organization.findById(user.organizationId).select('name isActive')
-      : null;
-
     res.json({
       message: 'Verified successfully',
       accessToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        organizationId: user.organizationId,
-        organizationName: organization?.name || null,
-      },
+      user: await buildSessionUser(user),
     });
   } catch (err) {
     next(err);
@@ -164,7 +164,19 @@ async function refresh(req, res, next) {
       return res.status(401).json({ message: 'Invalid refresh token' });
     }
 
-    const payload = authPayload(user);
+    const block = await organizationBlockMessage(user);
+    if (block) {
+      clearRefreshCookie(res);
+      return res.status(403).json({ message: block });
+    }
+
+    let actingOrganizationId = null;
+    if (user.isSuperAdmin && decoded.actingOrganizationId) {
+      const actingOrg = await Organization.findById(decoded.actingOrganizationId).select('_id');
+      if (actingOrg) actingOrganizationId = String(actingOrg._id);
+    }
+
+    const payload = authPayload(user, { actingOrganizationId });
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
     setRefreshCookie(res, refreshToken);
@@ -183,21 +195,7 @@ async function logout(req, res) {
 
 async function me(req, res, next) {
   try {
-    const user = req.user;
-    const organization = user.organizationId
-      ? await Organization.findById(user.organizationId).select('name isActive')
-      : null;
-
-    res.json({
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        organizationId: user.organizationId,
-        organizationName: organization?.name || null,
-      },
-    });
+    res.json({ user: await buildSessionUser(req.user) });
   } catch (err) {
     next(err);
   }

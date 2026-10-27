@@ -1,5 +1,6 @@
 const Notification = require('../models/Notification');
 const { orgFilter } = require('../utils/orgScope');
+const { maskActors } = require('../services/platformAccess');
 
 const POPULATE = [
   { path: 'actorId', select: 'name email' },
@@ -23,7 +24,7 @@ async function list(req, res, next) {
       .populate(POPULATE)
       .lean();
 
-    res.json({ data: notifications });
+    res.json({ data: await maskActors(notifications) });
   } catch (err) {
     next(err);
   }

@@ -2,7 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { AppShell } from '@/components/layout/AppShell'
-import { ProtectedRoute } from '@/routes/ProtectedRoute'
+import { ProtectedRoute, RequireFirm, RequirePlatform } from '@/routes/ProtectedRoute'
 import { PublicOnlyRoute } from '@/routes/PublicOnlyRoute'
 import LoginPage from '@/pages/auth/LoginPage'
 import RegisterPage from '@/pages/auth/RegisterPage'
@@ -17,8 +17,17 @@ import TasksPage from '@/pages/tasks/TasksPage'
 import PermissionsPage from '@/pages/permissions/PermissionsPage'
 import SettingsPage from '@/pages/settings/SettingsPage'
 import ReportsPage from '@/pages/reports/ReportsPage'
+import OrganizationsPage from '@/pages/platform/OrganizationsPage'
+import AdminsPage from '@/pages/platform/AdminsPage'
+import { homePath } from '@/lib/homePath'
+import { useAuthStore } from '@/store/authStore'
 import { TASK_PHASE } from '@/config/taskModule'
 import PlaceholderPage from '@/pages/PlaceholderPage'
+
+function HomeRedirect() {
+  const user = useAuthStore((s) => s.user)
+  return <Navigate to={homePath(user)} replace />
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +51,11 @@ export default function App() {
 
           <Route element={<ProtectedRoute />}>
             <Route element={<AppShell />}>
+              <Route element={<RequirePlatform />}>
+                <Route path="/organizations" element={<OrganizationsPage />} />
+                <Route path="/admins" element={<AdminsPage />} />
+              </Route>
+              <Route element={<RequireFirm />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               {TASK_PHASE.crud ? (
                 <Route path="/tasks" element={<TasksPage />} />
@@ -56,10 +70,11 @@ export default function App() {
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/permissions" element={<PermissionsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              </Route>
             </Route>
           </Route>
 
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<HomeRedirect />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>

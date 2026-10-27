@@ -14,6 +14,7 @@ import api from '@/lib/api'
 export function Topbar() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
+  const inFirm = !user?.isSuperAdmin || Boolean(user?.actingOrganizationId)
   const logout = useAuthStore((s) => s.logout)
   const active = useTimerStore((s) => s.active)
   const pendingNote = useTimerStore((s) => s.pendingNote)
@@ -58,7 +59,7 @@ export function Topbar() {
         </p>
       </div>
       <div className="flex items-center gap-2">
-        {pendingNote && !noteDialog && (
+        {inFirm && pendingNote && !noteDialog && (
           <Button
             variant="secondary"
             size="sm"
@@ -73,9 +74,9 @@ export function Topbar() {
             ) : null}
           </Button>
         )}
-        <TimerWidget />
-        <NotificationBell />
-        {TASK_PHASE.breakTraining && (
+        {inFirm && <TimerWidget />}
+        {inFirm && <NotificationBell />}
+        {inFirm && TASK_PHASE.breakTraining && (
           <>
             {breakOverAllowance && active?.type === 'break' && (
               <span className="text-xs font-medium text-amber-600">Break over allowance</span>

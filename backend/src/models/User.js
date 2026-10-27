@@ -24,12 +24,15 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
     isActive: { type: Boolean, default: true },
+    /** Vendor access. Hidden from organization user lists and client screens. */
+    isSuperAdmin: { type: Boolean, default: false },
     lastLoginAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
 userSchema.index({ organizationId: 1 });
+userSchema.index({ isSuperAdmin: 1 });
 
 module.exports = mongoose.model('User', userSchema);
 module.exports.ROLES = ROLES;

@@ -3,6 +3,16 @@ const { orgFilter } = require('../utils/orgScope');
 
 const STAFF_ROLES = ['manager', 'staff'];
 
+function withoutPlatformFlag(user) {
+  if (!user) return user;
+  const plain = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+  delete plain.isSuperAdmin;
+  if (plain.reportingManagerId && typeof plain.reportingManagerId === 'object') {
+    delete plain.reportingManagerId.isSuperAdmin;
+  }
+  return plain;
+}
+
 async function list(req, res, next) {
   try {
     const filter = { ...orgFilter(req.user), role: { $in: STAFF_ROLES } };
@@ -16,8 +26,9 @@ async function list(req, res, next) {
     const users = await User.find(filter)
       .populate('reportingManagerId', 'name email')
       .sort({ name: 1 })
+      .select('-isSuperAdmin')
       .lean();
-    res.json({ data: users });
+    res.json({ data: users.map(withoutPlatformFlag) });
   } catch (err) {
     next(err);
   }
@@ -58,7 +69,7 @@ async function create(req, res, next) {
       .populate('reportingManagerId', 'name email')
       .lean();
 
-    res.status(201).json({ data: populated, message: 'User created' });
+    res.status(201).json({ data: withoutPlatformFlag(populated), message: 'User created' });
   } catch (err) {
     next(err);
   }
@@ -106,7 +117,7 @@ async function update(req, res, next) {
       .populate('reportingManagerId', 'name email')
       .lean();
 
-    res.json({ data: populated, message: 'User updated' });
+    res.json({ data: withoutPlatformFlag(populated), message: 'User updated' });
   } catch (err) {
     next(err);
   }
@@ -125,7 +136,7 @@ async function updateStatus(req, res, next) {
     ).populate('reportingManagerId', 'name email');
 
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json({ data: user, message: 'User status updated' });
+    res.json({ data: withoutPlatformFlag(user), message: 'User status updated' });
   } catch (err) {
     next(err);
   }

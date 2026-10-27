@@ -310,6 +310,11 @@ const settingsUpdateSchema = z
     }
   );
 
+const platformAdminSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required'),
+  email: requiredEmail,
+});
+
 function validate(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
@@ -349,5 +354,6 @@ module.exports = {
   alertSchema,
   permissionUpdateSchema,
   settingsUpdateSchema,
+  platformAdminSchema,
   validate,
 };

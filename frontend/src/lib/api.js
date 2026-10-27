@@ -24,6 +24,20 @@ api.interceptors.response.use(
   async (error) => {
     const original = error.config
     const status = error.response?.status
+    const message = error.response?.data?.message
+
+    if (message === 'This organization is not active') {
+      useAuthStore.getState().logout()
+      try {
+        sessionStorage.setItem('simplytrack-auth-notice', message)
+      } catch {
+        // ignore storage errors
+      }
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+      return Promise.reject(error)
+    }
 
     if (status !== 401 || original._retry || original.url?.includes('/auth/')) {
       return Promise.reject(error)
