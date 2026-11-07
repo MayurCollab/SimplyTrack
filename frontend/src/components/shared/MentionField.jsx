@@ -18,6 +18,7 @@ export const MentionField = forwardRef(function MentionField(
     users = [],
     multiline = false,
     disabled,
+    readOnly,
     className,
     placeholder,
     id,
@@ -41,7 +42,7 @@ export const MentionField = forwardRef(function MentionField(
   )
   const tagged = useMemo(() => extractMentions(value, users), [value, users])
 
-  function updateMentionState(nextValue, caret) {
+  function updateMentionState(nextValue, caret, { resetActive = true } = {}) {
     const mention = getActiveMention(nextValue, caret)
     if (!mention) {
       setOpen(false)
@@ -59,9 +60,13 @@ export const MentionField = forwardRef(function MentionField(
     }
 
     setOpen(true)
-    setQuery(mention.query)
+    setQuery((prevQuery) => {
+      if (resetActive && prevQuery !== mention.query) {
+        setActiveIndex(0)
+      }
+      return mention.query
+    })
     setMentionStart(mention.start)
-    setActiveIndex(0)
   }
 
   function syncMenuPosition() {
@@ -126,17 +131,36 @@ export const MentionField = forwardRef(function MentionField(
     if (!open || !matches.length) return
     if (event.key === 'ArrowDown') {
       event.preventDefault()
+      event.stopPropagation()
       setActiveIndex((i) => (i + 1) % matches.length)
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
+      event.stopPropagation()
       setActiveIndex((i) => (i - 1 + matches.length) % matches.length)
     } else if (event.key === 'Enter' || event.key === 'Tab') {
       event.preventDefault()
+      event.stopPropagation()
       selectUser(matches[activeIndex] || matches[0])
     } else if (event.key === 'Escape') {
       event.preventDefault()
       setOpen(false)
     }
+  }
+
+  function handleKeyUp(event) {
+    // Arrow/Enter navigation already handled on keydown — do not re-scan and reset index
+    if (
+      event.key === 'ArrowDown' ||
+      event.key === 'ArrowUp' ||
+      event.key === 'Enter' ||
+      event.key === 'Tab' ||
+      event.key === 'Escape'
+    ) {
+      return
+    }
+    updateMentionState(event.target.value, event.target.selectionStart, {
+      resetActive: true,
+    })
   }
 
   const Field = multiline ? Textarea : Input
@@ -150,6 +174,7 @@ export const MentionField = forwardRef(function MentionField(
         name={name}
         value={value}
         disabled={disabled}
+        readOnly={readOnly}
         placeholder={placeholder}
         className={className}
         onChange={handleChange}
@@ -158,8 +183,12 @@ export const MentionField = forwardRef(function MentionField(
           setTimeout(() => setOpen(false), 120)
           onBlur?.(event)
         }}
-        onClick={(event) => updateMentionState(event.target.value, event.target.selectionStart)}
-        onKeyUp={(event) => updateMentionState(event.target.value, event.target.selectionStart)}
+        onClick={(event) =>
+          updateMentionState(event.target.value, event.target.selectionStart, {
+            resetActive: false,
+          })
+        }
+        onKeyUp={handleKeyUp}
         autoComplete="off"
         {...fieldProps}
       />

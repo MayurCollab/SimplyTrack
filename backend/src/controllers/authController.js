@@ -16,6 +16,14 @@ const {
 } = require('../services/token');
 const { organizationBlockMessage, buildSessionUser } = require('../services/platformAccess');
 
+function clientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.ip || '';
+}
+
 async function register(req, res, next) {
   try {
     const { orgName, name, email } = req.body;
@@ -132,6 +140,8 @@ async function verifyOtpHandler(req, res, next) {
     }
 
     user.lastLoginAt = new Date();
+    user.lastLoginIp = clientIp(req).slice(0, 80);
+    user.lastLoginUserAgent = String(req.headers['user-agent'] || '').slice(0, 300);
     await user.save();
 
     const payload = authPayload(user);

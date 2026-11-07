@@ -17,9 +17,21 @@ async function list(req, res, next) {
   try {
     const orgId = orgFilter(req.user).organizationId;
     const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
+    const deletedOnly = String(req.query.deleted || '') === '1' || req.query.deleted === 'true';
 
-    const notifications = await Notification.find(activeFilter(orgId, req.user._id))
-      .sort({ createdAt: -1 })
+    const filter = deletedOnly
+      ? {
+          organizationId: orgId,
+          recipientId: req.user._id,
+          deletedAt: { $ne: null },
+        }
+      : activeFilter(orgId, req.user._id);
+
+    const notifications = await Notification.find(filter)
+      .select(
+        'type message isRead readAt createdAt deletedAt taskId reviewPointId shareRequestId actorId'
+      )
+      .sort(deletedOnly ? { deletedAt: -1 } : { createdAt: -1 })
       .limit(limit)
       .populate(POPULATE)
       .lean();
@@ -111,4 +123,31 @@ async function softDelete(req, res, next) {
   }
 }
 
-module.exports = { list, unreadCount, markRead, markAllRead, softDelete };
+async function restore(req, res, next) {
+  try {
+    const orgId = orgFilter(req.user).organizationId;
+    const notification = await Notification.findOneAndUpdate(
+      {
+        organizationId: orgId,
+        recipientId: req.user._id,
+        _id: req.params.id,
+        deletedAt: { $ne: null },
+      },
+      { deletedAt: null },
+      { returnDocument: 'after' }
+    )
+      .populate(POPULATE)
+      .lean();
+
+    if (!notification) {
+      return res.status(404).json({ message: 'Deleted notification not found' });
+    }
+
+    const [masked] = await maskActors([notification]);
+    res.json({ data: masked || notification, message: 'Notification restored' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, unreadCount, markRead, markAllRead, softDelete, restore };

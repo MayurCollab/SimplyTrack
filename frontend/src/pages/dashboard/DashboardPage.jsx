@@ -162,7 +162,7 @@ function StatCard({
               t.value
             )}
           >
-            {loading ? '0' : value}
+            {loading ? '—' : value}
           </p>
           <p className={cn('mt-2.5 text-xs font-medium', t.hint)}>{hint}</p>
         </div>

@@ -7,6 +7,8 @@ const {
   taskSchema,
   taskUpdateSchema,
   reviewPointReplySchema,
+  reviewPointReplyEditSchema,
+  reviewPointRootSchema,
   closingNoteSchema,
   completeTaskSchema,
   ignoreTaskSchema,
@@ -44,7 +46,7 @@ router.post(
 
 router.post(
   '/:id/share-requests',
-  permissionMiddleware('tasks', 'edit'),
+  permissionMiddleware('task_share_requests', 'add'),
   validate(taskShareRequestSchema),
   taskShareController.create
 );
@@ -59,6 +61,23 @@ router.post(
   permissionMiddleware('tasks', 'view'),
   validate(reviewPointReplySchema),
   taskController.replyReviewPoint
+);
+router.patch(
+  '/:id/review-points/:pointId/replies/:replyId',
+  permissionMiddleware('tasks', 'view'),
+  validate(reviewPointReplyEditSchema),
+  taskController.editReviewPointReply
+);
+router.delete(
+  '/:id/review-points/:pointId/replies/:replyId',
+  permissionMiddleware('tasks', 'view'),
+  taskController.softDeleteReviewPointReply
+);
+router.patch(
+  '/:id/review-points/:pointId',
+  permissionMiddleware('tasks', 'edit'),
+  validate(reviewPointRootSchema),
+  taskController.updateReviewPointRoot
 );
 
 router.post(

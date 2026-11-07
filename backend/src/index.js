@@ -6,6 +6,7 @@ const { connectDB } = require('./config/db');
 const { runStartupMigrations } = require('./services/migrations');
 const { startRecurringJob } = require('./services/recurringJob');
 const { startMonthlyReportJob } = require('./services/monthlyReportJob');
+const { startDailySnapshotJob } = require('./services/dailySnapshotJob');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const authRoutes = require('./routes/auth');
 const stageRoutes = require('./routes/stages');
@@ -23,6 +24,9 @@ const settingsRoutes = require('./routes/settings');
 const reportRoutes = require('./routes/reports');
 const dashboardRoutes = require('./routes/dashboard');
 const platformRoutes = require('./routes/platform');
+const teamStatusRoutes = require('./routes/teamStatus');
+const timeAdjustmentRoutes = require('./routes/timeAdjustmentRequests');
+const realtimeRoutes = require('./routes/realtime');
 
 const app = express();
 
@@ -51,6 +55,9 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/platform', platformRoutes);
+app.use('/api/team-status', teamStatusRoutes);
+app.use('/api/time-adjustment-requests', timeAdjustmentRoutes);
+app.use('/api/realtime', realtimeRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
@@ -60,6 +67,7 @@ async function start() {
   await runStartupMigrations();
   startRecurringJob();
   startMonthlyReportJob();
+  startDailySnapshotJob();
   app.listen(config.port, () => {
     console.log(`SimplyTrack API running on http://localhost:${config.port}`);
     if (config.isDev) {

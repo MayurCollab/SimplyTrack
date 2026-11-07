@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 
 const MODULE_LABELS = {
+  dashboard: 'Dashboard',
   tasks: 'Tasks',
   clients: 'Clients',
   users: 'Users',
@@ -19,6 +20,11 @@ const MODULE_LABELS = {
   reports: 'Reports',
   permissions: 'Permissions',
   settings: 'Settings',
+  team_status: 'Team status',
+  time_adjustments: 'Time adjustments',
+  timelogs: 'Timers & time logs',
+  notifications: 'Notifications',
+  task_share_requests: 'Task share requests',
 }
 
 const BASE_ACTIONS = [
@@ -34,6 +40,8 @@ const TASK_ACTIONS = [
   { key: 'editBudgetHours', label: 'Edit budget' },
   { key: 'editLoggedTime', label: 'Edit logged time' },
   { key: 'editTargetDate', label: 'Edit target date' },
+  { key: 'saveTaskDescription', label: 'Save description' },
+  { key: 'editTaskDescription', label: 'Edit description' },
 ]
 
 function emptyActions() {
@@ -47,6 +55,8 @@ function emptyActions() {
     complete: false,
     ignore: false,
     editTargetDate: false,
+    saveTaskDescription: false,
+    editTaskDescription: false,
   }
 }
 
@@ -189,6 +199,31 @@ export default function PermissionsPage() {
                       {module === 'alerts' ? (
                         <p className="text-xs font-normal text-muted-foreground">
                           Manage alert intervals on the task form
+                        </p>
+                      ) : null}
+                      {module === 'team_status' ? (
+                        <p className="text-xs font-normal text-muted-foreground">
+                          Edit = stop a member&apos;s timer (owner default)
+                        </p>
+                      ) : null}
+                      {module === 'time_adjustments' ? (
+                        <p className="text-xs font-normal text-muted-foreground">
+                          Add = submit requests · Edit = approve/reject (owner)
+                        </p>
+                      ) : null}
+                      {module === 'timelogs' ? (
+                        <p className="text-xs font-normal text-muted-foreground">
+                          View = active timer · Add = break/training · Edit = correct duration
+                        </p>
+                      ) : null}
+                      {module === 'task_share_requests' ? (
+                        <p className="text-xs font-normal text-muted-foreground">
+                          Add = request share · Edit = approve/reject
+                        </p>
+                      ) : null}
+                      {module === 'notifications' ? (
+                        <p className="text-xs font-normal text-muted-foreground">
+                          Edit = mark read · Delete = dismiss
                         </p>
                       ) : null}
                     </td>

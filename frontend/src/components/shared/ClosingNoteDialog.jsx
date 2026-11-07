@@ -87,7 +87,8 @@ export function ClosingNoteDialog() {
 
   const trimmedNote = note.trim()
   const noteTooShort = trimmedNote.length < 10
-  const needsStage = timeLog.type !== 'break'
+  // Stage is only required when stopping a task timer (not break / training-meeting)
+  const needsStage = timeLog.type === 'task'
   const stageMissing = needsStage && !closingNoteStageId
   const formInvalid = noteTooShort || stageMissing || otherDetailsMissing
 
@@ -147,7 +148,7 @@ export function ClosingNoteDialog() {
     } else if (timeLog.type === 'break') {
       await stopBreak.mutateAsync({ closingNote })
     } else if (timeLog.type === 'training') {
-      await stopTraining.mutateAsync({ closingNote, closingNoteStageId })
+      await stopTraining.mutateAsync({ closingNote })
     }
     resetForm()
   }

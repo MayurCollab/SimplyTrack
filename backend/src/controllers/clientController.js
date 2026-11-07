@@ -1,4 +1,6 @@
 const ClientMaster = require('../models/ClientMaster');
+const ProjectMaster = require('../models/ProjectMaster');
+const Task = require('../models/Task');
 const { orgFilter } = require('../utils/orgScope');
 
 async function list(req, res, next) {
@@ -58,4 +60,27 @@ async function updateStatus(req, res, next) {
   }
 }
 
-module.exports = { list, create, update, updateStatus };
+async function remove(req, res, next) {
+  try {
+    const filter = { _id: req.params.id, ...orgFilter(req.user) };
+    const existing = await ClientMaster.findOne(filter).select('_id').lean();
+    if (!existing) return res.status(404).json({ message: 'Client not found' });
+
+    const [projectCount, taskCount] = await Promise.all([
+      ProjectMaster.countDocuments({ clientId: existing._id }),
+      Task.countDocuments({ clientId: existing._id }),
+    ]);
+    if (projectCount > 0 || taskCount > 0) {
+      return res.status(400).json({
+        message: `Cannot delete client — linked to ${projectCount} project(s) and ${taskCount} task(s)`,
+      });
+    }
+
+    await ClientMaster.deleteOne({ _id: existing._id });
+    res.json({ message: 'Client deleted' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, create, update, updateStatus, remove };

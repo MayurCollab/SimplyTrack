@@ -1,3 +1,4 @@
+const moment = require('moment-timezone');
 const TimeLog = require('../models/TimeLog');
 const StageMaster = require('../models/StageMaster');
 const Settings = require('../models/Settings');
@@ -7,8 +8,12 @@ const {
   getPendingNoteSession,
   recomputeTaskLoggedMinutes,
   completeClosingNote,
+  sumBreakMinutesToday,
 } = require('../services/timer');
-const { computeDurationMinutes, effectiveDurationMinutes } = require('../services/timeCalc');
+const { computeDurationMinutes } = require('../services/timeCalc');
+const { createTtlCache } = require('../utils/ttlCache');
+
+const settingsCache = createTtlCache({ ttlMs: 60_000, maxSize: 200 });
 
 async function resolveClosingNoteStage(req, closingNoteStageId) {
   const stage = await StageMaster.findOne({
@@ -20,45 +25,87 @@ async function resolveClosingNoteStage(req, closingNoteStageId) {
   return stage;
 }
 
+async function getOrgSettings(orgId) {
+  const key = String(orgId);
+  const cached = settingsCache.get(key);
+  if (cached) return cached;
+  const settings = await Settings.findOne({ organizationId: orgId })
+    .select('dailyBreakHours')
+    .lean();
+  const value = { dailyBreakHours: settings?.dailyBreakHours ?? 1 };
+  settingsCache.set(key, value);
+  return value;
+}
+
+async function listMine(req, res, next) {
+  try {
+    const orgId = orgFilter(req.user).organizationId;
+    const userId = req.user._id;
+    const { from, to } = req.query;
+
+    if (!from || !to) {
+      return res.status(400).json({ message: 'from and to query params are required (YYYY-MM-DD)' });
+    }
+
+    const settings = orgId
+      ? await Settings.findOne({ organizationId: orgId }).select('defaultTimezone').lean()
+      : null;
+    const timezone = settings?.defaultTimezone || 'Asia/Kolkata';
+
+    const rangeStart = moment.tz(from, 'YYYY-MM-DD', timezone).startOf('day').toDate();
+    const rangeEnd = moment.tz(to, 'YYYY-MM-DD', timezone).endOf('day').toDate();
+    if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
+      return res.status(400).json({ message: 'Invalid date range' });
+    }
+
+    const logs = await TimeLog.find({
+      userId,
+      organizationId: orgId,
+      startedAt: { $gte: rangeStart, $lte: rangeEnd },
+      stoppedAt: { $ne: null },
+      pendingClosingNote: { $ne: true },
+    })
+      .populate('taskId', 'taskCode title')
+      .populate('timeAdjustmentRequestId', 'ticketNumber status')
+      .sort({ startedAt: -1 })
+      .lean();
+
+    res.json({ data: logs, timezone });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function getActive(req, res, next) {
   try {
     const userId = req.user._id;
-    const active = await getOpenSession(userId);
-    const pendingNote = await getPendingNoteSession(userId);
-
-    let breakMinutesToday = 0;
-    let dailyBreakHours = 1;
-
     const orgId = getOrgId(req.user);
-    if (orgId) {
-      const settings = await Settings.findOne({ organizationId: orgId }).lean();
-      dailyBreakHours = settings?.dailyBreakHours ?? 1;
 
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
-      const breakLogs = await TimeLog.find({
-        userId,
-        type: 'break',
-        startedAt: { $gte: startOfDay },
-        stoppedAt: { $ne: null },
-        pendingClosingNote: { $ne: true },
-      }).lean();
+    const [active, pendingNote, settings, breakMinutesClosed] = await Promise.all([
+      getOpenSession(userId),
+      getPendingNoteSession(userId),
+      orgId ? getOrgSettings(orgId) : Promise.resolve({ dailyBreakHours: 1 }),
+      orgId ? sumBreakMinutesToday(userId, startOfDay) : Promise.resolve(0),
+    ]);
 
-      breakMinutesToday = breakLogs.reduce((s, l) => s + effectiveDurationMinutes(l), 0);
-
-      if (active?.type === 'break') {
-        breakMinutesToday += computeDurationMinutes(active.startedAt);
-      }
+    let breakMinutesToday = breakMinutesClosed || 0;
+    if (active?.type === 'break') {
+      breakMinutesToday += computeDurationMinutes(active.startedAt);
     }
+
+    const dailyBreakHours = settings?.dailyBreakHours ?? 1;
+    const dailyBreakMinutes = dailyBreakHours * 60;
 
     res.json({
       data: {
         active,
         pendingNote,
         breakMinutesToday,
-        dailyBreakMinutes: dailyBreakHours * 60,
-        breakOverAllowance: breakMinutesToday > dailyBreakHours * 60,
+        dailyBreakMinutes,
+        breakOverAllowance: breakMinutesToday > dailyBreakMinutes,
       },
     });
   } catch (err) {
@@ -83,7 +130,8 @@ async function submitPendingNote(req, res, next) {
     }
 
     let closingStageId = null;
-    if (pending.type !== 'break') {
+    // Closing note stage is required for task sessions only (not break / training)
+    if (pending.type === 'task') {
       const closingStage = await resolveClosingNoteStage(req, closingNoteStageId);
       if (!closingStage) {
         return res.status(400).json({ message: 'Invalid closing note stage' });
@@ -108,7 +156,10 @@ async function startBreak(req, res, next) {
     const orgId = orgFilter(req.user).organizationId;
     const userId = req.user._id;
 
-    const pending = await getPendingNoteSession(userId);
+    const [pending, open] = await Promise.all([
+      getPendingNoteSession(userId),
+      getOpenSession(userId),
+    ]);
     if (pending) {
       return res.status(409).json({
         message: 'Please add a closing note for your previous session first',
@@ -116,17 +167,13 @@ async function startBreak(req, res, next) {
       });
     }
 
-    const open = await getOpenSession(userId);
     if (open) {
       if (open.type === 'break') {
         return res.status(400).json({ message: 'Break already running' });
       }
-      const activeSession = await TimeLog.findById(open._id)
-        .populate('taskId', 'title taskCode')
-        .lean();
       return res.status(409).json({
         message: 'Add a closing note for your current session before starting break',
-        data: { activeSession },
+        data: { activeSession: open },
       });
     }
 
@@ -137,7 +184,7 @@ async function startBreak(req, res, next) {
       startedAt: new Date(),
     });
 
-    res.status(201).json({ data: log, message: 'Break started' });
+    res.status(201).json({ data: log.toObject(), message: 'Break started' });
   } catch (err) {
     next(err);
   }
@@ -194,7 +241,10 @@ async function startTraining(req, res, next) {
     const orgId = orgFilter(req.user).organizationId;
     const userId = req.user._id;
 
-    const pending = await getPendingNoteSession(userId);
+    const [pending, open] = await Promise.all([
+      getPendingNoteSession(userId),
+      getOpenSession(userId),
+    ]);
     if (pending) {
       return res.status(409).json({
         message: 'Please add a closing note for your previous session first',
@@ -202,17 +252,13 @@ async function startTraining(req, res, next) {
       });
     }
 
-    const open = await getOpenSession(userId);
     if (open) {
       if (open.type === 'training') {
         return res.status(400).json({ message: 'Training already running' });
       }
-      const activeSession = await TimeLog.findById(open._id)
-        .populate('taskId', 'title taskCode')
-        .lean();
       return res.status(409).json({
         message: 'Add a closing note for your current session before starting training',
-        data: { activeSession },
+        data: { activeSession: open },
       });
     }
 
@@ -223,7 +269,7 @@ async function startTraining(req, res, next) {
       startedAt: new Date(),
     });
 
-    res.status(201).json({ data: log, message: 'Training started' });
+    res.status(201).json({ data: log.toObject(), message: 'Training started' });
   } catch (err) {
     next(err);
   }
@@ -231,11 +277,7 @@ async function startTraining(req, res, next) {
 
 async function stopTraining(req, res, next) {
   try {
-    const { closingNote, closingNoteStageId } = req.body;
-    const closingStage = await resolveClosingNoteStage(req, closingNoteStageId);
-    if (!closingStage) {
-      return res.status(400).json({ message: 'Invalid closing note stage' });
-    }
+    const { closingNote } = req.body;
 
     if (!closingNote?.trim() || closingNote.trim().length < 10) {
       return res.status(400).json({ message: 'Closing note must be at least 10 characters' });
@@ -258,7 +300,7 @@ async function stopTraining(req, res, next) {
           pending._id,
           req.user._id,
           closingNote.trim(),
-          closingStage._id
+          null
         );
         return res.json({ data: log, message: 'Training stopped' });
       }
@@ -269,7 +311,7 @@ async function stopTraining(req, res, next) {
     open.stoppedAt = stoppedAt;
     open.systemDurationMinutes = computeDurationMinutes(open.startedAt, stoppedAt);
     open.closingNote = closingNote.trim();
-    open.closingNoteStageId = closingStage._id;
+    open.closingNoteStageId = null;
     open.pendingClosingNote = false;
     await open.save();
 
@@ -282,17 +324,12 @@ async function stopTraining(req, res, next) {
 async function correctDuration(req, res, next) {
   try {
     const user = req.user;
-    let canCorrect = user.role === 'super_admin' || user.role === 'owner';
-
-    if (!canCorrect && user.organizationId) {
-      const Permission = require('../models/Permission');
-      const permission = await Permission.findOne({
-        organizationId: user.organizationId,
-        role: user.role,
-        module: 'tasks',
-      }).lean();
-      canCorrect = Boolean(permission?.actions?.editLoggedTime);
-    }
+    const { hasPermission } = require('../services/permissionCache');
+    const canCorrect =
+      user.role === 'super_admin' ||
+      user.role === 'owner' ||
+      (await hasPermission(user, 'timelogs', 'edit')) ||
+      (await hasPermission(user, 'tasks', 'editLoggedTime'));
 
     if (!canCorrect) {
       return res.status(403).json({ message: 'You do not have permission to correct logged time' });
@@ -327,6 +364,7 @@ async function correctDuration(req, res, next) {
 }
 
 module.exports = {
+  listMine,
   getActive,
   submitPendingNote,
   startBreak,

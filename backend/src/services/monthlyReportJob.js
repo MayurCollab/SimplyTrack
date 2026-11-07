@@ -166,19 +166,24 @@ async function runMonthlyReportJob({ forcePeriodKey = null } = {}) {
     jobLog = await MonthlyReportJobLog.findOne({ jobKey });
     if (!jobLog) throw err;
 
-    if (jobLog.status === 'success') {
-      console.log(`[MonthlyReport] Job ${jobKey} already completed — skipping`);
+    // Real completion (at least one enabled org was processed) — do not re-send
+    if (isJobFullyDone(jobLog)) {
+      console.log(
+        `[MonthlyReport] Job ${jobKey} already completed (${jobLog.totals.orgsEnabled} org(s)) — skipping`
+      );
       return { skipped: true, reason: 'job_already_completed', periodKey };
     }
 
-    // Resume failed/partial/running jobs (e.g. after process crash)
+    // Resume failed/partial/running/empty-success jobs (e.g. after crash, or orgs enabled later)
     jobLog.status = 'running';
     jobLog.runDateKey = dateKey;
     jobLog.startedAt = jobLog.startedAt || new Date();
     jobLog.message = `Monthly status report job resumed for period ${periodKey}`;
     jobLog.errorMessage = '';
     await jobLog.save();
-    console.log(`[MonthlyReport] Job ${jobKey} resumed (previous status was incomplete)`);
+    console.log(
+      `[MonthlyReport] Job ${jobKey} resumed (previous status was incomplete or empty)`
+    );
   }
 
   console.log(
@@ -229,6 +234,63 @@ async function runMonthlyReportJob({ forcePeriodKey = null } = {}) {
   }
 }
 
+/** A "success" with zero enabled orgs is not a real send — allow retry later. */
+function isJobFullyDone(jobLog) {
+  if (!jobLog) return false;
+  if (jobLog.status !== 'success') return false;
+  return (jobLog.totals?.orgsEnabled || 0) > 0;
+}
+
+/**
+ * If the server was down on the 1st at 06:00 IST, still send previous-month reports
+ * once we are past that window and the job has not completed successfully.
+ */
+async function catchUpMissedMonthlyReport() {
+  const now = moment.tz(JOB_TIMEZONE);
+  // Wait for the normal cron window on day 1 before 06:00
+  if (now.date() === 1 && now.hour() < 6) {
+    console.log(
+      `[MonthlyReport] Catch-up: waiting for scheduled 06:00 IST window on the 1st`
+    );
+    return;
+  }
+
+  const periodKey = previousPeriodKey(now);
+  const jobKey = `monthly-${periodKey}`;
+  const existing = await MonthlyReportJobLog.findOne({ jobKey })
+    .select('status totals')
+    .lean();
+
+  if (isJobFullyDone(existing)) {
+    console.log(
+      `[MonthlyReport] Catch-up: ${jobKey} already completed with ${existing.totals.orgsEnabled} org(s) — skipping`
+    );
+    return;
+  }
+
+  const enabledCount = await Settings.countDocuments({
+    'monthlyStatusReport.enabled': true,
+  });
+  if (enabledCount === 0) {
+    console.log(
+      `[MonthlyReport] Catch-up: period ${periodKey} — no organizations have Monthly Status Report enabled in Settings (nothing to send)`
+    );
+    return;
+  }
+
+  if (existing?.status === 'success' && (existing.totals?.orgsEnabled || 0) === 0) {
+    console.log(
+      `[MonthlyReport] Catch-up: ${jobKey} was marked success with 0 orgs — re-running now that ${enabledCount} org(s) are enabled`
+    );
+  } else {
+    console.log(
+      `[MonthlyReport] Catch-up: running missed/incomplete job for period ${periodKey} (${enabledCount} org(s) enabled)`
+    );
+  }
+
+  await runMonthlyReportJob({ forcePeriodKey: periodKey });
+}
+
 function startMonthlyReportJob() {
   const cron = require('node-cron');
 
@@ -244,6 +306,13 @@ function startMonthlyReportJob() {
     },
     { timezone: JOB_TIMEZONE }
   );
+
+  // Catch up shortly after boot (e.g. server was offline on the 1st)
+  setTimeout(() => {
+    catchUpMissedMonthlyReport().catch((err) => {
+      console.error('[MonthlyReport] Catch-up job failed:', err.message);
+    });
+  }, 8_000);
 
   console.log(
     `[MonthlyReport] Scheduler started (${JOB_SCHEDULE_LABEL}) — previous month on the 1st at 06:00 IST`

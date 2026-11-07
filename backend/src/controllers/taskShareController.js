@@ -7,6 +7,7 @@ const {
   notifyHourShareDecision,
 } = require('../services/notifications');
 const { maskActors, visibleActorName } = require('../services/platformAccess');
+const { publishOrgEvent } = require('../services/realtime');
 
 const POPULATE = [
   { path: 'taskId', select: 'taskCode title budgetHours assigneeId helpingMemberId managerId isShared' },
@@ -109,6 +110,18 @@ async function create(req, res, next) {
       toUserName: toUser.name,
     });
 
+    publishOrgEvent(
+      orgId,
+      {
+        type: 'share_request',
+        reason: 'submitted',
+        taskId: task._id,
+        shareRequestId: shareRequest._id,
+        actorId: userId,
+      },
+      { excludeUserId: userId }
+    );
+
     const populated = await TaskShareRequest.findById(shareRequest._id)
       .populate(POPULATE)
       .lean();
@@ -209,6 +222,30 @@ async function review(req, res, next, decision) {
       decision,
       toUserId: shareRequest.toUserId,
     });
+
+    publishOrgEvent(
+      orgId,
+      {
+        type: 'share_request',
+        reason: decision,
+        taskId: task._id,
+        shareRequestId: shareRequest._id,
+        actorId: req.user._id,
+      },
+      { excludeUserId: req.user._id }
+    );
+    if (decision === 'approved') {
+      publishOrgEvent(
+        orgId,
+        {
+          type: 'task.changed',
+          reason: 'share_approved',
+          taskId: task._id,
+          actorId: req.user._id,
+        },
+        { excludeUserId: req.user._id }
+      );
+    }
 
     const populated = await TaskShareRequest.findById(shareRequest._id)
       .populate(POPULATE)

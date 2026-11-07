@@ -27,11 +27,14 @@ const userSchema = new mongoose.Schema(
     /** Vendor access. Hidden from organization user lists and client screens. */
     isSuperAdmin: { type: Boolean, default: false },
     lastLoginAt: { type: Date, default: null },
+    lastLoginIp: { type: String, default: '', trim: true },
+    lastLoginUserAgent: { type: String, default: '', trim: true },
   },
   { timestamps: true }
 );
 
 userSchema.index({ organizationId: 1 });
+userSchema.index({ organizationId: 1, isActive: 1, role: 1 });
 userSchema.index({ isSuperAdmin: 1 });
 
 module.exports = mongoose.model('User', userSchema);

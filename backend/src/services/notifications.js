@@ -1,4 +1,40 @@
 const Notification = require('../models/Notification');
+const User = require('../models/User');
+const { publishToUsers, publishOrgEvent } = require('./realtime');
+
+function publishNotificationDocs(docs, extra = {}) {
+  const list = Array.isArray(docs) ? docs : docs ? [docs] : [];
+  if (!list.length) return list;
+
+  for (const doc of list) {
+    const recipientId = doc.recipientId?._id || doc.recipientId;
+    if (!recipientId) continue;
+    publishToUsers(
+      doc.organizationId,
+      [recipientId],
+      {
+        type: 'notification',
+        notificationType: doc.type,
+        taskId: doc.taskId || null,
+        reviewPointId: doc.reviewPointId || null,
+        shareRequestId: doc.shareRequestId || null,
+        timeAdjustmentRequestId: doc.timeAdjustmentRequestId || null,
+        message: doc.message || '',
+        notificationId: doc._id || null,
+        ...extra,
+      },
+      { excludeUserId: doc.actorId }
+    );
+  }
+  return list;
+}
+
+async function insertAndPublish(docs, extra = {}) {
+  if (!docs?.length) return [];
+  const created = await Notification.insertMany(docs);
+  publishNotificationDocs(created, extra);
+  return created;
+}
 
 function mentionUserIds(mentions = []) {
   return (mentions || [])
@@ -75,7 +111,7 @@ async function notifyNewTaskMentions({
     };
   });
 
-  return Notification.insertMany(docs);
+  return insertAndPublish(docs, { reason: 'mention' });
 }
 
 /**
@@ -137,7 +173,7 @@ async function notifyReviewPointReply({
     isRead: false,
   }));
 
-  return Notification.insertMany(docs);
+  return insertAndPublish(docs, { reason: 'review_reply' });
 }
 
 function roundHours(value) {
@@ -179,7 +215,7 @@ async function notifyHourShareRequested({
     isRead: false,
   };
 
-  return Notification.insertMany([doc]);
+  return insertAndPublish([doc], { reason: 'hour_share_requested' });
 }
 
 /**
@@ -232,7 +268,149 @@ async function notifyHourShareDecision({
     };
   });
 
-  return Notification.insertMany(docs);
+  return insertAndPublish(docs, { reason: 'hour_share_decision' });
+}
+
+async function notifyTimeAdjustmentSubmitted({
+  organizationId,
+  actorId,
+  actorName,
+  request,
+}) {
+  if (!organizationId || !request) return [];
+
+  const owners = await User.find({
+    organizationId,
+    role: 'owner',
+    isActive: true,
+  })
+    .select('_id')
+    .lean();
+
+  const recipients = owners
+    .map((o) => String(o._id))
+    .filter((id) => id !== String(actorId));
+  if (!recipients.length) return [];
+
+  const who = actorName || 'Someone';
+  const ticket = request.ticketNumber || 'adjustment';
+  const desc = String(request.description || '').trim().slice(0, 100);
+  const suffix = desc ? ` — “${desc}${desc.length >= 100 ? '…' : ''}”` : '';
+
+  const docs = recipients.map((recipientId) => ({
+    organizationId,
+    recipientId,
+    actorId,
+    type: 'time_adjustment_submitted',
+    timeAdjustmentRequestId: request._id,
+    message: `${who} submitted time adjustment ${ticket}${suffix}`,
+    isRead: false,
+  }));
+
+  return insertAndPublish(docs, { reason: 'time_adjustment_submitted' });
+}
+
+async function notifyTimeAdjustmentDecision({
+  organizationId,
+  actorId,
+  actorName,
+  request,
+  decision,
+}) {
+  if (!organizationId || !request || !request.requestedById) return [];
+  if (decision !== 'approved' && decision !== 'rejected') return [];
+
+  const recipientId = String(request.requestedById);
+  if (recipientId === String(actorId)) return [];
+
+  const who = actorName || 'Owner';
+  const ticket = request.ticketNumber || 'request';
+  const comment = String(request.reviewerComment || '').trim().slice(0, 120);
+  const suffix = comment ? ` — “${comment}${comment.length >= 120 ? '…' : ''}”` : '';
+  const type = 'time_adjustment_decided';
+
+  let message;
+  if (decision === 'approved') {
+    message = `${who} approved your time adjustment ${ticket}${suffix}`;
+  } else {
+    message = `${who} rejected your time adjustment ${ticket}${suffix}`;
+  }
+
+  return insertAndPublish(
+    [
+      {
+        organizationId,
+        recipientId,
+        actorId,
+        type,
+        timeAdjustmentRequestId: request._id,
+        message,
+        isRead: false,
+      },
+    ],
+    { reason: 'time_adjustment_decided' }
+  );
+}
+
+/**
+ * Notify newly assigned / helping members when a task is created or reassigned.
+ */
+async function notifyTaskAssignment({
+  organizationId,
+  actorId,
+  actorName,
+  task,
+  previousAssigneeId = null,
+  previousHelpingMemberId = null,
+}) {
+  if (!task || !organizationId || !actorId) return [];
+
+  const actor = String(actorId);
+  const nextAssignee = task.assigneeId ? String(task.assigneeId._id || task.assigneeId) : null;
+  const nextHelper = task.helpingMemberId
+    ? String(task.helpingMemberId._id || task.helpingMemberId)
+    : null;
+  const prevAssignee = previousAssigneeId ? String(previousAssigneeId) : null;
+  const prevHelper = previousHelpingMemberId ? String(previousHelpingMemberId) : null;
+
+  const recipients = new Set();
+  if (nextAssignee && nextAssignee !== actor && nextAssignee !== prevAssignee) {
+    recipients.add(nextAssignee);
+  }
+  if (nextHelper && nextHelper !== actor && nextHelper !== prevHelper) {
+    recipients.add(nextHelper);
+  }
+  if (!recipients.size) return [];
+
+  const label = taskLabel(task);
+  const who = actorName || 'Someone';
+  const docs = [...recipients].map((recipientId) => {
+    const isAssignee = recipientId === nextAssignee;
+    return {
+      organizationId,
+      recipientId,
+      actorId,
+      type: 'task_assigned',
+      taskId: task._id,
+      message: isAssignee
+        ? `${who} assigned you to ${label}`
+        : `${who} added you as helping member on ${label}`,
+      isRead: false,
+    };
+  });
+
+  const created = await insertAndPublish(docs, { reason: 'task_assigned' });
+  publishOrgEvent(
+    organizationId,
+    {
+      type: 'task.changed',
+      reason: 'assign',
+      taskId: task._id,
+      actorId,
+    },
+    { excludeUserId: actorId, userIds: [...recipients] }
+  );
+  return created;
 }
 
 module.exports = {
@@ -242,4 +420,8 @@ module.exports = {
   notifyReviewPointReply,
   notifyHourShareRequested,
   notifyHourShareDecision,
+  notifyTimeAdjustmentSubmitted,
+  notifyTimeAdjustmentDecision,
+  notifyTaskAssignment,
+  publishNotificationDocs,
 };

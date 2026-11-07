@@ -12,5 +12,6 @@ router.get('/', permissionMiddleware('clients', 'view'), clientController.list);
 router.post('/', permissionMiddleware('clients', 'add'), validate(clientSchema), clientController.create);
 router.patch('/:id', permissionMiddleware('clients', 'edit'), validate(clientSchema.partial()), clientController.update);
 router.patch('/:id/status', permissionMiddleware('clients', 'edit'), validate(statusSchema), clientController.updateStatus);
+router.delete('/:id', permissionMiddleware('clients', 'delete'), clientController.remove);
 
 module.exports = router;

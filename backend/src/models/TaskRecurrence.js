@@ -28,20 +28,15 @@ const recurrenceSchema = new mongoose.Schema(
     endDate: { type: Date, default: null },
     /** Raw compliance period for the next suggested task */
     nextCompliancePeriodInput: { type: String, required: true },
-    /** When the next suggestion should appear (typically day after next period ends) */
+    /** Calendar date when the next recurring suggestion should appear */
     nextSuggestAt: { type: Date, required: true },
     template: {
       assigneeId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
       helpingMemberId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
       stageId: { type: mongoose.Schema.Types.ObjectId, ref: 'StageMaster', required: true },
-      priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
+      priority: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' },
       budgetHours: { type: Number, required: true },
       description: { type: String, default: '' },
-    },
-    alertId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'AlertMaster',
-      default: null,
     },
     createdFromTaskId: {
       type: mongoose.Schema.Types.ObjectId,

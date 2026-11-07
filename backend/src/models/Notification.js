@@ -7,6 +7,10 @@ const NOTIFICATION_TYPES = [
   'hour_share_requested',
   'hour_share_approved',
   'hour_share_rejected',
+  'timer_stopped_by_admin',
+  'time_adjustment_submitted',
+  'time_adjustment_decided',
+  'task_assigned',
 ];
 
 const notificationSchema = new mongoose.Schema(
@@ -45,6 +49,11 @@ const notificationSchema = new mongoose.Schema(
     shareRequestId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'TaskShareRequest',
+      default: null,
+    },
+    timeAdjustmentRequestId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TimeAdjustmentRequest',
       default: null,
     },
     message: { type: String, required: true, trim: true },

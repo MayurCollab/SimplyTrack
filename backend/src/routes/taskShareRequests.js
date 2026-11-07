@@ -8,22 +8,18 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
-router.get(
-  '/',
-  permissionMiddleware('tasks', 'view'),
-  taskShareController.list
-);
+router.get('/', permissionMiddleware('task_share_requests', 'view'), taskShareController.list);
 
 router.post(
   '/:requestId/approve',
-  permissionMiddleware('tasks', 'edit'),
+  permissionMiddleware('task_share_requests', 'edit'),
   validate(taskShareReviewSchema),
   taskShareController.approve
 );
 
 router.post(
   '/:requestId/reject',
-  permissionMiddleware('tasks', 'edit'),
+  permissionMiddleware('task_share_requests', 'edit'),
   validate(taskShareReviewSchema),
   taskShareController.reject
 );

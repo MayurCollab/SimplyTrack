@@ -1,14 +1,26 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import api from '@/lib/api'
+import { useAuthStore } from '@/store/authStore'
+
+/** Super-admin on platform view has no org until they enter a firm. */
+function useFirmContext() {
+  const user = useAuthStore((s) => s.user)
+  if (!user) return false
+  if (user.isSuperAdmin) return Boolean(user.actingOrganizationId)
+  return Boolean(user.organizationId)
+}
 
 export function useStages(search = '', type = 'workflow') {
+  const inFirm = useFirmContext()
   return useQuery({
     queryKey: ['stages', type, search],
     queryFn: async () => {
       const { data } = await api.get('/stages', { params: { search, type } })
       return data.data
     },
+    enabled: inFirm,
+    staleTime: 60_000,
   })
 }
 
@@ -48,6 +60,7 @@ export function useServices(search = '') {
       const { data } = await api.get('/services', { params: { search } })
       return data.data
     },
+    staleTime: 60_000,
   })
 }
 
@@ -83,12 +96,16 @@ export function useClients(search = '') {
       const { data } = await api.get('/clients', { params: { search } })
       return data.data
     },
+    staleTime: 60_000,
   })
 }
 
 export function useClientMutations() {
   const qc = useQueryClient()
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['clients'] })
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['clients'] })
+    qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
+  }
 
   const create = useMutation({
     mutationFn: (body) => api.post('/clients', body),
@@ -108,7 +125,13 @@ export function useClientMutations() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to update status'),
   })
 
-  return { create, update, updateStatus }
+  const remove = useMutation({
+    mutationFn: (id) => api.delete(`/clients/${id}`),
+    onSuccess: (res) => { toast.success(res.data.message || 'Client deleted'); invalidate() },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete client'),
+  })
+
+  return { create, update, updateStatus, remove }
 }
 
 export function useProjects(filters = {}) {
@@ -118,6 +141,7 @@ export function useProjects(filters = {}) {
       const { data } = await api.get('/projects', { params: filters })
       return data.data
     },
+    staleTime: 60_000,
   })
 }
 
@@ -153,6 +177,7 @@ export function useManagers() {
       const { data } = await api.get('/users/managers')
       return data.data
     },
+    staleTime: 60_000,
   })
 }
 
@@ -163,6 +188,7 @@ export function useUsers(search = '') {
       const { data } = await api.get('/users', { params: { search } })
       return data.data
     },
+    staleTime: 60_000,
   })
 }
 

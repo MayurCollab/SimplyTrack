@@ -165,7 +165,7 @@ export default function ServicesPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         title={editing ? 'Edit Service' : 'Add Service'}
-        size="xl"
+        size="md"
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
@@ -177,25 +177,25 @@ export default function ServicesPage() {
           </>
         }
       >
-        <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+        <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
           <FormField label="Name" htmlFor="name" required error={form.formState.errors.name?.message}>
             <Input id="name" {...form.register('name')} />
           </FormField>
-          <FormField
-            label="Estimated Hours"
-            htmlFor="estimatedHours"
-            required
-            error={form.formState.errors.estimatedHours?.message}
-          >
-            <Input
-              id="estimatedHours"
-              type="number"
-              step="0.01"
-              min="0.01"
-              {...form.register('estimatedHours', { valueAsNumber: true })}
-            />
-          </FormField>
           <FormRow>
+            <FormField
+              label="Estimated Hours"
+              htmlFor="estimatedHours"
+              required
+              error={form.formState.errors.estimatedHours?.message}
+            >
+              <Input
+                id="estimatedHours"
+                type="number"
+                step="0.01"
+                min="0.01"
+                {...form.register('estimatedHours', { valueAsNumber: true })}
+              />
+            </FormField>
             <FormField
               label="Turnaround (Business Days)"
               htmlFor="turnaroundBusinessDays"
@@ -209,6 +209,8 @@ export default function ServicesPage() {
                 {...form.register('turnaroundBusinessDays', { valueAsNumber: true })}
               />
             </FormField>
+          </FormRow>
+          <FormRow>
             <FormField
               label="Compliance Period Type"
               htmlFor="compliancePeriodType"
@@ -222,13 +224,13 @@ export default function ServicesPage() {
                 ))}
               </Select>
             </FormField>
+            <FormSwitchRow label="Active">
+              <Switch
+                checked={form.watch('isActive')}
+                onCheckedChange={(v) => form.setValue('isActive', v)}
+              />
+            </FormSwitchRow>
           </FormRow>
-          <FormSwitchRow label="Active">
-            <Switch
-              checked={form.watch('isActive')}
-              onCheckedChange={(v) => form.setValue('isActive', v)}
-            />
-          </FormSwitchRow>
         </form>
       </Sheet>
 

@@ -1,18 +1,11 @@
 const Permission = require('../models/Permission');
 const { MODULES } = require('../models/Permission');
 const { orgFilter } = require('../utils/orgScope');
-
-const FULL = {
-  view: true,
-  add: true,
-  edit: true,
-  delete: true,
-  editBudgetHours: true,
-  editLoggedTime: true,
-  complete: true,
-  ignore: true,
-  editTargetDate: true,
-};
+const {
+  FULL,
+  getRolePermissionMap,
+  invalidateOrgPermissions,
+} = require('../services/permissionCache');
 
 const ACTION_KEYS = Object.keys(FULL);
 
@@ -28,16 +21,7 @@ async function getMyPermissions(req, res, next) {
       return res.json({ data: fullAccessMap() });
     }
 
-    const permissions = await Permission.find({
-      organizationId: user.organizationId,
-      role: user.role,
-    }).lean();
-
-    const map = {};
-    for (const p of permissions) {
-      map[p.module] = p.actions;
-    }
-
+    const map = await getRolePermissionMap(user.organizationId, user.role);
     res.json({ data: map });
   } catch (err) {
     next(err);
@@ -60,28 +44,41 @@ async function update(req, res, next) {
     const orgId = orgFilter(req.user).organizationId;
     const items = Array.isArray(req.body.items) ? req.body.items : [];
 
-    const updated = [];
+    const ops = [];
+    const touched = [];
+
     for (const item of items) {
       if (!item?.role || !item?.module || !MODULES.includes(item.module)) continue;
       if (!['manager', 'staff'].includes(item.role)) continue;
 
-      const existing = await Permission.findOne({
-        organizationId: orgId,
-        role: item.role,
-        module: item.module,
-      });
-      if (!existing) continue;
-
-      const nextActions = { ...existing.actions };
+      const setFields = {};
       for (const key of ACTION_KEYS) {
         if (typeof item.actions?.[key] === 'boolean') {
-          nextActions[key] = item.actions[key];
+          setFields[`actions.${key}`] = item.actions[key];
         }
       }
-      existing.actions = nextActions;
-      await existing.save();
-      updated.push(existing.toObject());
+      if (!Object.keys(setFields).length) continue;
+
+      ops.push({
+        updateOne: {
+          filter: { organizationId: orgId, role: item.role, module: item.module },
+          update: { $set: setFields },
+        },
+      });
+      touched.push({ role: item.role, module: item.module });
     }
+
+    if (ops.length) {
+      await Permission.bulkWrite(ops, { ordered: false });
+      invalidateOrgPermissions(orgId);
+    }
+
+    const updated = touched.length
+      ? await Permission.find({
+          organizationId: orgId,
+          $or: touched.map((t) => ({ role: t.role, module: t.module })),
+        }).lean()
+      : [];
 
     res.json({ data: updated, message: 'Permissions updated' });
   } catch (err) {

@@ -9,6 +9,8 @@ import {
   FolderKanban,
   Wrench,
   BarChart3,
+  Radio,
+  Clock,
   Shield,
   Settings,
   PanelLeftClose,
@@ -27,14 +29,22 @@ const PLATFORM_ITEMS = [
 ]
 
 const NAV_ITEMS = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
   { to: '/tasks', label: 'Tasks', icon: CheckSquare, module: 'tasks' },
   { to: '/stages', label: 'Stages', icon: Layers, module: 'stages' },
   { to: '/users', label: 'Users', icon: Users, module: 'users' },
-  { to: '/clients', label: 'Clients', icon: Building2 },
-  { to: '/projects', label: 'Projects', icon: FolderKanban },
-  { to: '/services', label: 'Services', icon: Wrench },
+  { to: '/clients', label: 'Clients', icon: Building2, module: 'clients' },
+  { to: '/projects', label: 'Projects', icon: FolderKanban, module: 'projects' },
+  { to: '/services', label: 'Services', icon: Wrench, module: 'services' },
   { to: '/reports', label: 'Reports', icon: BarChart3, module: 'reports' },
+  { to: '/team-status', label: 'Team status', icon: Radio, module: 'team_status' },
+  {
+    to: '/time-adjustments',
+    label: 'Time adjustments',
+    icon: Clock,
+    module: 'time_adjustments',
+    alsoShowIf: 'add',
+  },
   { to: '/permissions', label: 'Permissions', icon: Shield, module: 'permissions' },
   { to: '/settings', label: 'Settings', icon: Settings, module: 'settings' },
 ]
@@ -137,7 +147,10 @@ export function Sidebar() {
   const inFirm = !user?.isSuperAdmin || Boolean(user?.actingOrganizationId)
   const firmItems = inFirm
     ? NAV_ITEMS.filter((item) => {
-        if (item.module && !can(item.module, 'view')) return false
+        if (item.module && !can(item.module, 'view')) {
+          if (item.alsoShowIf && can(item.module, item.alsoShowIf)) return true
+          return false
+        }
         return true
       })
     : []

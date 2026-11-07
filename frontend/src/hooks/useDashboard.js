@@ -8,5 +8,7 @@ export function useDashboardOverview() {
       const { data } = await api.get('/dashboard/overview')
       return data.data
     },
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
   })
 }

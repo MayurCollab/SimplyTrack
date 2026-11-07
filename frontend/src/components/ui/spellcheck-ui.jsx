@@ -50,13 +50,21 @@ export function SpellcheckBackdrop({
     <div
       aria-hidden
       className={cn(
-        'pointer-events-none absolute inset-0 overflow-hidden rounded-lg px-3 py-2 text-sm leading-5 text-transparent',
-        multiline ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
+        'pointer-events-none absolute inset-0 overflow-hidden rounded-lg',
         className
       )}
-      style={{ transform: `translate(${-scrollLeft}px, ${-scrollTop}px)` }}
     >
-      {content}
+      {/* Inner translate keeps overflow clipping on the shell (transform on the
+          clipped node itself can paint underlines outside the input). */}
+      <div
+        className={cn(
+          'px-3 py-2 text-sm leading-5 text-transparent',
+          multiline ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'
+        )}
+        style={{ transform: `translate(${-scrollLeft}px, ${-scrollTop}px)` }}
+      >
+        {content}
+      </div>
     </div>
   )
 }

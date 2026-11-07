@@ -1,3 +1,7 @@
+const { createTtlCache } = require('../utils/ttlCache');
+
+const mentionUserCache = createTtlCache({ ttlMs: 60_000, maxSize: 200 });
+
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -54,9 +58,15 @@ function extractMentions(text, users = [], preferred = []) {
 }
 
 async function loadMentionUsers(User, organizationId) {
-  return User.find({ organizationId, isActive: true })
+  const key = String(organizationId);
+  const cached = mentionUserCache.get(key);
+  if (cached) return cached;
+
+  const users = await User.find({ organizationId, isActive: true })
     .select('_id name email')
     .lean();
+  mentionUserCache.set(key, users);
+  return users;
 }
 
 function withReviewPointMentions(points = [], users = []) {

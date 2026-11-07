@@ -7,10 +7,14 @@ import { ClosingNoteDialog } from '@/components/shared/ClosingNoteDialog'
 import { TASK_PHASE } from '@/config/taskModule'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
+import { useLiveQuerySync } from '@/hooks/useLiveQuerySync'
 
 export function AppShell() {
   const accessToken = useAuthStore((s) => s.accessToken)
+  const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
+  const inFirm = !user?.isSuperAdmin || Boolean(user?.actingOrganizationId)
+  useLiveQuerySync()
 
   useEffect(() => {
     if (!accessToken) return undefined
@@ -36,7 +40,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      {TASK_PHASE.timer && <ClosingNoteDialog />}
+      {TASK_PHASE.timer && inFirm ? <ClosingNoteDialog /> : null}
     </div>
   )
 }

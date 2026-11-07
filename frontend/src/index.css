@@ -104,14 +104,6 @@ body {
   color: #0f172a;
 }
 
-.ag-theme-quartz .ag-row-overdue {
-  background-color: #fef2f2 !important;
-}
-
-.ag-theme-quartz .ag-row-due-soon {
-  background-color: #fffbeb !important;
-}
-
 .ag-theme-quartz .ag-paging-panel {
   color: #475569;
   border-top: 1px solid #e2e8f0;
@@ -153,6 +145,10 @@ body {
 /* UK English spellcheck — Chrome-like wavy underline (dictionary via nspell) */
 .uk-spell-shell {
   background-color: #ffffff;
+  overflow: hidden;
+  border-radius: 0.5rem; /* match input rounded-lg */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .uk-misspelled {

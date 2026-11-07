@@ -13,8 +13,12 @@ const projectSchema = new mongoose.Schema(
       ref: 'ClientMaster',
       required: true,
     },
-    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-    estimatedTime: { type: Number, default: 0, min: 0 },
+    serviceIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'ServiceMaster',
+      },
+    ],
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

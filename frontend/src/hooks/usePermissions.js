@@ -18,7 +18,17 @@ export function usePermissions() {
   function can(module, action) {
     if (!user) return false
     if (user.role === 'super_admin' || user.role === 'owner') return true
-    return Boolean(data?.[module]?.[action])
+    const actions = data?.[module]
+    if (!actions) return false
+    if (actions[action] != null) return Boolean(actions[action])
+    // Back-compat for new task description flags not yet set in Permissions
+    if (module === 'tasks' && action === 'saveTaskDescription') {
+      return Boolean(actions.add)
+    }
+    if (module === 'tasks' && action === 'editTaskDescription') {
+      return Boolean(actions.edit)
+    }
+    return false
   }
 
   return { permissions: data, isLoading, can }

@@ -7,8 +7,7 @@ import { useAppForm } from '@/hooks/useAppForm'
 import { usePermission } from '@/hooks/usePermissions'
 import {
   useClients,
-  useManagers,
-  useUsers,
+  useServices,
   useProjects,
   useProjectMutations,
 } from '@/hooks/useMasters'
@@ -18,26 +17,24 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { FormField, FormRow, FormSwitchRow } from '@/components/ui/form-field'
+import { FormField, FormSwitchRow } from '@/components/ui/form-field'
 import { Sheet } from '@/components/ui/sheet'
 
 const FORM_ID = 'project-form'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 
-function initials(name = '') {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
-    .join('')
+const EMPTY_FORM = {
+  name: '',
+  clientId: '',
+  serviceIds: [],
+  isActive: true,
 }
 
 export default function ProjectsPage() {
   const [search, setSearch] = useState('')
   const [clientFilter, setClientFilter] = useState('')
-  const [assigneeFilter, setAssigneeFilter] = useState('')
+  const [serviceFilter, setServiceFilter] = useState('')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [deleteId, setDeleteId] = useState(null)
@@ -50,24 +47,15 @@ export default function ProjectsPage() {
     () => ({
       search: search || undefined,
       clientId: clientFilter || undefined,
-      assigneeId: assigneeFilter || undefined,
+      serviceId: serviceFilter || undefined,
     }),
-    [search, clientFilter, assigneeFilter]
+    [search, clientFilter, serviceFilter]
   )
 
   const { data = [], isLoading } = useProjects(filters)
   const { data: clients = [] } = useClients()
-  const { data: managers = [] } = useManagers()
-  const { data: users = [] } = useUsers()
+  const { data: services = [] } = useServices()
   const { create, update, remove } = useProjectMutations()
-
-  const staffOptions = useMemo(() => {
-    const map = new Map()
-    ;[...managers, ...users].forEach((u) => {
-      if (u.isActive !== false) map.set(u._id, u)
-    })
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
-  }, [managers, users])
 
   const activeClients = useMemo(
     () =>
@@ -82,26 +70,27 @@ export default function ProjectsPage() {
     [clients]
   )
 
+  const activeServices = useMemo(
+    () =>
+      services
+        .filter((s) => s.isActive !== false)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [services]
+  )
+
+  const sortedServices = useMemo(
+    () => [...services].sort((a, b) => a.name.localeCompare(b.name)),
+    [services]
+  )
+
   const form = useAppForm({
     resolver: zodResolver(projectSchema),
-    defaultValues: {
-      name: '',
-      clientId: '',
-      assignedTo: [],
-      estimatedTime: 0,
-      isActive: true,
-    },
+    defaultValues: EMPTY_FORM,
   })
 
   function openCreate() {
     setEditing(null)
-    form.reset({
-      name: '',
-      clientId: '',
-      assignedTo: [],
-      estimatedTime: 0,
-      isActive: true,
-    })
+    form.reset({ ...EMPTY_FORM })
     setSheetOpen(true)
   }
 
@@ -110,8 +99,7 @@ export default function ProjectsPage() {
     form.reset({
       name: row.name,
       clientId: row.clientId?._id || row.clientId || '',
-      assignedTo: (row.assignedTo || []).map((u) => u._id || u),
-      estimatedTime: row.estimatedTime ?? 0,
+      serviceIds: (row.serviceIds || []).map((s) => s._id || s),
       isActive: row.isActive ?? true,
     })
     setSheetOpen(true)
@@ -135,36 +123,17 @@ export default function ProjectsPage() {
         valueGetter: (p) => p.data.clientId?.organizationName || '-',
       },
       {
-        headerName: 'Assigned To',
-        flex: 1.8,
+        headerName: 'Services',
+        flex: 2.5,
         cellRenderer: (p) => {
-          const people = p.data.assignedTo || []
-          if (!people.length) return <span className="text-muted-foreground">-</span>
+          const list = p.data.serviceIds || []
+          if (!list.length) return <span className="text-muted-foreground">-</span>
           return (
-            <div className="flex h-full items-center gap-1">
-              {people.slice(0, 4).map((u) => (
-                <span
-                  key={u._id}
-                  title={u.name}
-                  className="inline-flex size-7 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary"
-                >
-                  {initials(u.name)}
-                </span>
-              ))}
-              {people.length > 4 && (
-                <span className="text-xs text-muted-foreground">+{people.length - 4}</span>
-              )}
-            </div>
+            <span className="text-sm text-slate-700">
+              {list.map((s) => s.name || s).join(', ')}
+            </span>
           )
         },
-      },
-      {
-        field: 'estimatedTime',
-        headerName: 'Estimated Time',
-        width: 140,
-        cellRenderer: (p) => (
-          <span className="font-bold tabular-nums text-slate-800">{p.value ?? 0}h</span>
-        ),
       },
       {
         field: 'isActive',
@@ -205,7 +174,7 @@ export default function ProjectsPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">Project Master</h1>
           <p className="text-sm text-muted-foreground">
-            Link projects to clients and assign team members.
+            Link projects to clients and select the services for each project.
           </p>
         </div>
         {canAdd && (
@@ -226,14 +195,14 @@ export default function ProjectsPage() {
           ))}
         </Select>
         <Select
-          value={assigneeFilter}
-          onChange={(e) => setAssigneeFilter(e.target.value)}
-          className="w-44"
+          value={serviceFilter}
+          onChange={(e) => setServiceFilter(e.target.value)}
+          className="w-48"
         >
-          <option value="">All assignees</option>
-          {staffOptions.map((u) => (
-            <option key={u._id} value={u._id}>
-              {u.name}
+          <option value="">All services</option>
+          {sortedServices.map((s) => (
+            <option key={s._id} value={s._id}>
+              {s.name}
             </option>
           ))}
         </Select>
@@ -245,7 +214,7 @@ export default function ProjectsPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         title={editing ? 'Edit Project' : 'Add Project'}
-        size="xl"
+        size="md"
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
@@ -257,7 +226,7 @@ export default function ProjectsPage() {
           </>
         }
       >
-        <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+        <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
           <FormField label="Project Name" htmlFor="name" required error={form.formState.errors.name?.message}>
             <Input id="name" {...form.register('name')} />
           </FormField>
@@ -273,38 +242,46 @@ export default function ProjectsPage() {
             </Select>
           </FormField>
 
-          <FormField label="Assigned To">
+          <FormField
+            label="Services"
+            required
+            error={form.formState.errors.serviceIds?.message}
+          >
             <Controller
-              name="assignedTo"
+              name="serviceIds"
               control={form.control}
               render={({ field }) => (
-                <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
-                  {staffOptions.length === 0 ? (
-                    <p className="px-1 py-2 text-xs text-muted-foreground">No staff available yet.</p>
+                <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1.5">
+                  {activeServices.length === 0 ? (
+                    <p className="px-1 py-2 text-xs text-muted-foreground">
+                      No active services available yet.
+                    </p>
                   ) : (
-                    staffOptions.map((u) => {
-                      const checked = field.value?.includes(u._id)
+                    activeServices.map((s) => {
+                      const checked = field.value?.includes(s._id)
                       return (
                         <label
-                          key={u._id}
+                          key={s._id}
                           className={cn(
-                            'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted',
+                            'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted',
                             checked && 'bg-primary/5'
                           )}
                         >
                           <input
                             type="checkbox"
-                            className="size-4 rounded border-border"
+                            className="size-3.5 rounded border-border"
                             checked={checked}
                             onChange={(e) => {
                               const next = e.target.checked
-                                ? [...(field.value || []), u._id]
-                                : (field.value || []).filter((id) => id !== u._id)
+                                ? [...(field.value || []), s._id]
+                                : (field.value || []).filter((id) => id !== s._id)
                               field.onChange(next)
                             }}
                           />
-                          <span>{u.name}</span>
-                          <span className="text-xs capitalize text-muted-foreground">({u.role})</span>
+                          <span className="truncate">{s.name}</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            ({s.estimatedHours}h)
+                          </span>
                         </label>
                       )
                     })
@@ -320,20 +297,6 @@ export default function ProjectsPage() {
               onCheckedChange={(v) => form.setValue('isActive', v)}
             />
           </FormSwitchRow>
-
-          <FormField
-            label="Estimated Time (hours)"
-            htmlFor="estimatedTime"
-            error={form.formState.errors.estimatedTime?.message}
-          >
-            <Input
-              id="estimatedTime"
-              type="number"
-              step="0.01"
-              min="0"
-              {...form.register('estimatedTime', { valueAsNumber: true })}
-            />
-          </FormField>
         </form>
       </Sheet>
 

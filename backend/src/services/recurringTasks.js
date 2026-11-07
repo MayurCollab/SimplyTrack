@@ -3,7 +3,6 @@ const TaskRecurrence = require('../models/TaskRecurrence');
 const TaskSuggestion = require('../models/TaskSuggestion');
 const ClientMaster = require('../models/ClientMaster');
 const ServiceMaster = require('../models/ServiceMaster');
-const StageMaster = require('../models/StageMaster');
 const User = require('../models/User');
 const { orgFilter } = require('../utils/orgScope');
 const { generateTaskCode } = require('./taskCode');
@@ -13,7 +12,8 @@ const { findStageBySystemKey } = require('./stages');
 const {
   advanceCompliancePeriodInput,
   dueDateFromComplianceInput,
-  suggestAtFromComplianceInput,
+  startOfDay,
+  advanceSuggestAt,
 } = require('./recurrence');
 
 const SUGGESTION_POPULATE = [
@@ -43,24 +43,24 @@ async function createRecurrenceFromTask({
   frequency,
   startDate,
   endDate,
-  alertId,
 }) {
   const nextInput = advanceCompliancePeriodInput(
     task.compliancePeriodInput,
     service.compliancePeriodType,
     frequency
   );
-  const nextSuggestAt = suggestAtFromComplianceInput(nextInput, service.compliancePeriodType);
+  const nextSuggestAt = startOfDay(startDate);
+  const parsedEnd = endDate ? startOfDay(endDate) : null;
 
   return TaskRecurrence.create({
     organizationId,
     clientId: task.clientId,
     serviceId: task.serviceId,
     frequency,
-    startDate: new Date(startDate),
-    endDate: endDate ? new Date(endDate) : null,
+    startDate: nextSuggestAt,
+    endDate: parsedEnd,
     nextCompliancePeriodInput: nextInput,
-    nextSuggestAt: nextSuggestAt || new Date(),
+    nextSuggestAt,
     template: {
       assigneeId: task.assigneeId,
       helpingMemberId: task.helpingMemberId || null,
@@ -70,8 +70,7 @@ async function createRecurrenceFromTask({
       description: task.description || '',
     },
     createdFromTaskId: task._id,
-    alertId: alertId || task.alertId || null,
-    isActive: true,
+    isActive: !parsedEnd || nextSuggestAt <= parsedEnd,
   });
 }
 
@@ -81,12 +80,12 @@ async function advanceRecurrence(recurrence, service) {
     service.compliancePeriodType,
     recurrence.frequency
   );
-  const nextSuggestAt = suggestAtFromComplianceInput(nextInput, service.compliancePeriodType);
+  const nextSuggestAt = advanceSuggestAt(recurrence.nextSuggestAt, recurrence.frequency);
 
   recurrence.nextCompliancePeriodInput = nextInput;
-  recurrence.nextSuggestAt = nextSuggestAt || new Date();
+  recurrence.nextSuggestAt = nextSuggestAt;
 
-  if (recurrence.endDate && recurrence.nextSuggestAt > recurrence.endDate) {
+  if (recurrence.endDate && nextSuggestAt > startOfDay(recurrence.endDate)) {
     recurrence.isActive = false;
   }
 
@@ -117,14 +116,17 @@ async function generateDueSuggestions(organizationId = null) {
     const service = await ServiceMaster.findById(recurrence.serviceId);
     if (!service) continue;
 
-    if (recurrence.endDate && new Date() > recurrence.endDate) {
+    const endDate = recurrence.endDate ? startOfDay(recurrence.endDate) : null;
+    if (endDate && startOfDay(recurrence.nextSuggestAt) > endDate) {
       recurrence.isActive = false;
       await recurrence.save();
       continue;
     }
 
     const input = recurrence.nextCompliancePeriodInput;
-    const dueDate = dueDateFromComplianceInput(input, service.compliancePeriodType);
+    const dueDate =
+      dueDateFromComplianceInput(input, service.compliancePeriodType) ||
+      startOfDay(recurrence.nextSuggestAt);
     if (!dueDate) continue;
 
     const periodValue = formatCompliancePeriodValue(input, service.compliancePeriodType);

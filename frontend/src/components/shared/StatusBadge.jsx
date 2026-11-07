@@ -4,6 +4,7 @@ const PRIORITY = {
   low: 'bg-sky-50 text-sky-800 ring-1 ring-sky-200',
   medium: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200',
   high: 'bg-red-50 text-red-700 ring-1 ring-red-200',
+  urgent: 'bg-rose-100 text-rose-900 ring-1 ring-rose-300',
 }
 
 export function PriorityBadge({ priority }) {

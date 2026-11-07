@@ -17,6 +17,8 @@ import TasksPage from '@/pages/tasks/TasksPage'
 import PermissionsPage from '@/pages/permissions/PermissionsPage'
 import SettingsPage from '@/pages/settings/SettingsPage'
 import ReportsPage from '@/pages/reports/ReportsPage'
+import TeamStatusPage from '@/pages/team/TeamStatusPage'
+import TimeAdjustmentsPage from '@/pages/time-adjustments/TimeAdjustmentsPage'
 import OrganizationsPage from '@/pages/platform/OrganizationsPage'
 import AdminsPage from '@/pages/platform/AdminsPage'
 import { homePath } from '@/lib/homePath'
@@ -68,6 +70,8 @@ export default function App() {
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/services" element={<ServicesPage />} />
               <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/team-status" element={<TeamStatusPage />} />
+              <Route path="/time-adjustments" element={<TimeAdjustmentsPage />} />
               <Route path="/permissions" element={<PermissionsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               </Route>

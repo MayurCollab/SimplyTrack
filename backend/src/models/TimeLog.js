@@ -40,6 +40,18 @@ const timeLogSchema = new mongoose.Schema(
     },
     autoClosedBySwitch: { type: Boolean, default: false },
     pendingClosingNote: { type: Boolean, default: false },
+    adminStoppedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    adminStopReason: { type: String, default: '' },
+    adminStoppedAt: { type: Date, default: null },
+    timeAdjustmentRequestId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TimeAdjustmentRequest',
+      default: null,
+    },
   },
   { timestamps: { createdAt: true, updatedAt: true } }
 );
@@ -47,5 +59,9 @@ const timeLogSchema = new mongoose.Schema(
 timeLogSchema.index({ userId: 1, stoppedAt: 1 });
 timeLogSchema.index({ organizationId: 1, taskId: 1 });
 timeLogSchema.index({ userId: 1, type: 1, startedAt: -1 });
+timeLogSchema.index({ userId: 1 }, { partialFilterExpression: { stoppedAt: null } });
+timeLogSchema.index({ userId: 1, type: 1, taskId: 1, stoppedAt: 1 });
+timeLogSchema.index({ userId: 1, pendingClosingNote: 1, stoppedAt: 1 });
+timeLogSchema.index({ organizationId: 1, taskId: 1, startedAt: -1 });
 
 module.exports = mongoose.model('TimeLog', timeLogSchema);

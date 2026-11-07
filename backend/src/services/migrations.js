@@ -23,6 +23,16 @@ const MANAGER_TASK_ACTIONS = {
 };
 
 async function migratePermissions() {
+  // Managers can delete clients (aligned with add/edit on Client Master)
+  await Permission.updateMany(
+    { role: 'manager', module: 'clients' },
+    { $set: { 'actions.delete': true } }
+  );
+  await Permission.updateMany(
+    { role: 'owner', module: 'clients' },
+    { $set: { 'actions.delete': true } }
+  );
+
   for (const module of MODULES) {
     await Permission.updateMany(
       { role: 'manager', module: 'tasks' },

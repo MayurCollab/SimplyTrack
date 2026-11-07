@@ -104,3 +104,49 @@ export function toDateInputValue(value) {
   if (Number.isNaN(d.getTime())) return ''
   return d.toISOString().slice(0, 10)
 }
+
+/**
+ * Map task form dates onto the compliance input expected for a service type.
+ * - due_date → dueDate
+ * - year_end / quarter_end → periodEndDate
+ * - month types → YYYY-MM from periodEndDate
+ * - tax_year → year from periodEndDate
+ */
+export function complianceInputFromDates(
+  { periodEndDate, dueDate } = {},
+  compliancePeriodType
+) {
+  const periodEnd = toDateInputValue(periodEndDate)
+  const due = toDateInputValue(dueDate)
+  const type = compliancePeriodType || 'due_date'
+
+  if (type === 'due_date') return due
+  if (type === 'tax_year') {
+    if (!periodEnd) return ''
+    return String(new Date(`${periodEnd}T00:00:00`).getFullYear())
+  }
+  if (MONTH_TYPES.has(type)) {
+    if (!periodEnd) return ''
+    const d = new Date(`${periodEnd}T00:00:00`)
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`
+  }
+  return periodEnd
+}
+
+/** Best-effort period-end date for edit forms from stored compliance input. */
+export function periodEndFromComplianceInput(compliancePeriodInput, compliancePeriodType) {
+  const raw = String(compliancePeriodInput || '').trim()
+  if (!raw) return ''
+  const type = compliancePeriodType || 'due_date'
+  if (type === 'due_date') return ''
+  if (type === 'tax_year') {
+    const year = parseInt(raw, 10)
+    if (Number.isNaN(year)) return ''
+    return `${year}-04-05`
+  }
+  if (MONTH_TYPES.has(type)) {
+    if (/^\d{4}-\d{2}$/.test(raw)) return `${raw}-01`
+    return toDateInputValue(raw)
+  }
+  return toDateInputValue(raw) || raw
+}

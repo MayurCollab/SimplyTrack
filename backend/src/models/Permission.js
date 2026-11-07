@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const MODULES = [
+  'dashboard',
   'tasks',
   'clients',
   'users',
@@ -12,6 +13,11 @@ const MODULES = [
   'reports',
   'permissions',
   'settings',
+  'team_status',
+  'time_adjustments',
+  'timelogs',
+  'notifications',
+  'task_share_requests',
 ];
 
 const permissionSchema = new mongoose.Schema(
@@ -33,6 +39,8 @@ const permissionSchema = new mongoose.Schema(
       complete: { type: Boolean, default: false },
       ignore: { type: Boolean, default: false },
       editTargetDate: { type: Boolean, default: false },
+      saveTaskDescription: { type: Boolean, default: false },
+      editTaskDescription: { type: Boolean, default: false },
     },
   },
   { timestamps: true }

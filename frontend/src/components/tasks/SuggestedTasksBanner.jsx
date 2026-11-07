@@ -15,7 +15,7 @@ export function SuggestedTasksBanner() {
   return (
     <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-sky-900">Suggested recurring tasks</h2>
+        <h2 className="text-sm font-semibold text-sky-900">Recurring tasks</h2>
         <span className="text-xs text-sky-700">{suggestions.length} pending</span>
       </div>
       <ul className="space-y-2">
@@ -45,7 +45,7 @@ export function SuggestedTasksBanner() {
                   disabled={accept.isPending}
                 >
                   <Check className="size-3.5" />
-                  Accept
+                  Convert to Task
                 </Button>
               )}
               {canEdit && (

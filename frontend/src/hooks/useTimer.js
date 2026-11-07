@@ -3,10 +3,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { useTimerStore } from '@/store/timerStore'
+import { useAuthStore } from '@/store/authStore'
 
 export function useActiveTimer() {
   const setActiveState = useTimerStore((s) => s.setActiveState)
   const dismissedPendingNoteId = useTimerStore((s) => s.dismissedPendingNoteId)
+  const user = useAuthStore((s) => s.user)
+  const inFirm = Boolean(
+    user && (!user.isSuperAdmin || user.actingOrganizationId) && (user.organizationId || user.actingOrganizationId)
+  )
 
   const query = useQuery({
     queryKey: ['timelogs', 'active'],
@@ -14,7 +19,10 @@ export function useActiveTimer() {
       const { data } = await api.get('/timelogs/active')
       return data.data
     },
-    refetchInterval: 30_000,
+    enabled: inFirm,
+    staleTime: 10_000,
+    refetchInterval: inFirm ? 30_000 : false,
+    placeholderData: (prev) => prev,
   })
 
   useEffect(() => {
@@ -45,10 +53,49 @@ export function useTimerActions() {
   const openPendingClosingNote = useTimerStore((s) => s.openPendingClosingNote)
   const closeNoteDialog = useTimerStore((s) => s.closeNoteDialog)
 
-  const invalidate = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ['timelogs', 'active'] })
-    qc.invalidateQueries({ queryKey: ['tasks'] })
+  /** Light refresh — avoid full task-list refetch on every timer click */
+  const refreshActive = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['timelogs', 'active'] })
+    void qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
   }, [qc])
+
+  const patchTaskLoggedMinutes = useCallback(
+    (task) => {
+      if (!task?._id) return
+      const id = String(task._id)
+      qc.setQueriesData({ queryKey: ['tasks'] }, (old) => {
+        if (!Array.isArray(old)) {
+          if (old && String(old._id) === id) {
+            return { ...old, totalLoggedMinutes: task.totalLoggedMinutes ?? old.totalLoggedMinutes }
+          }
+          return old
+        }
+        return old.map((t) =>
+          String(t._id) === id
+            ? {
+                ...t,
+                totalLoggedMinutes: task.totalLoggedMinutes ?? t.totalLoggedMinutes,
+                lastTimerStoppedAt: task.lastTimerStoppedAt || new Date().toISOString(),
+              }
+            : t
+        )
+      })
+    },
+    [qc]
+  )
+
+  const patchActiveFromSession = useCallback(
+    (session) => {
+      if (!session) return
+      const prev = qc.getQueryData(['timelogs', 'active']) || {}
+      qc.setQueryData(['timelogs', 'active'], {
+        ...prev,
+        active: session,
+        pendingNote: null,
+      })
+    },
+    [qc]
+  )
 
   function handleConflict(err, pendingAction) {
     const data = err.response?.data?.data
@@ -81,7 +128,7 @@ export function useTimerActions() {
       } else if (timeLog.type === 'break') {
         await api.post('/timelogs/break/stop', { closingNote: note })
       } else if (timeLog.type === 'training') {
-        await api.post('/timelogs/training/stop', { closingNote: note, closingNoteStageId })
+        await api.post('/timelogs/training/stop', { closingNote: note })
       }
 
       if (pendingAction.type === 'task') {
@@ -99,7 +146,8 @@ export function useTimerActions() {
     onSuccess: (res) => {
       toast.success(res.data.message || 'Timer started')
       closeNoteDialog()
-      invalidate()
+      patchActiveFromSession(res.data.data)
+      refreshActive()
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Could not switch timer'),
   })
@@ -108,14 +156,26 @@ export function useTimerActions() {
     mutationFn: (taskId) => api.post(`/tasks/${taskId}/timer/start`),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Timer started')
-      invalidate()
+      patchActiveFromSession(res.data.data)
+      const session = res.data.data
+      const taskId = session?.taskId?._id || session?.taskId
+      if (taskId) {
+        qc.setQueriesData({ queryKey: ['tasks'] }, (old) => {
+          if (!Array.isArray(old)) return old
+          return old.map((t) =>
+            String(t._id) === String(taskId)
+              ? { ...t, lastTimerStartedAt: session.startedAt || new Date().toISOString() }
+              : t
+          )
+        })
+      }
     },
     onError: (err, taskId) => {
       const result = handleConflict(err, { type: 'task', taskId })
       if (!result.handled) {
         toast.error(err.response?.data?.message || 'Could not start timer')
       } else if (result.invalidate) {
-        invalidate()
+        refreshActive()
       }
     },
   })
@@ -126,7 +186,10 @@ export function useTimerActions() {
     onSuccess: (res) => {
       toast.success(res.data.message || 'Timer stopped')
       closeNoteDialog()
-      invalidate()
+      const prev = qc.getQueryData(['timelogs', 'active']) || {}
+      qc.setQueryData(['timelogs', 'active'], { ...prev, active: null, pendingNote: null })
+      patchTaskLoggedMinutes(res.data.data?.task)
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Could not stop timer'),
   })
@@ -135,14 +198,14 @@ export function useTimerActions() {
     mutationFn: () => api.post('/timelogs/break/start'),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Break started')
-      invalidate()
+      patchActiveFromSession(res.data.data)
     },
     onError: (err) => {
       const result = handleConflict(err, { type: 'break' })
       if (!result.handled) {
         toast.error(err.response?.data?.message || 'Could not start break')
       } else if (result.invalidate) {
-        invalidate()
+        refreshActive()
       }
     },
   })
@@ -153,7 +216,9 @@ export function useTimerActions() {
     onSuccess: (res) => {
       toast.success(res.data.message || 'Break stopped')
       closeNoteDialog()
-      invalidate()
+      const prev = qc.getQueryData(['timelogs', 'active']) || {}
+      qc.setQueryData(['timelogs', 'active'], { ...prev, active: null, pendingNote: null })
+      refreshActive()
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Could not stop break'),
   })
@@ -162,14 +227,14 @@ export function useTimerActions() {
     mutationFn: () => api.post('/timelogs/training/start'),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Training started')
-      invalidate()
+      patchActiveFromSession(res.data.data)
     },
     onError: (err) => {
       const result = handleConflict(err, { type: 'training' })
       if (!result.handled) {
         toast.error(err.response?.data?.message || 'Could not start training')
       } else if (result.invalidate) {
-        invalidate()
+        refreshActive()
       }
     },
   })
@@ -180,7 +245,9 @@ export function useTimerActions() {
     onSuccess: (res) => {
       toast.success(res.data.message || 'Training stopped')
       closeNoteDialog()
-      invalidate()
+      const prev = qc.getQueryData(['timelogs', 'active']) || {}
+      qc.setQueryData(['timelogs', 'active'], { ...prev, active: null, pendingNote: null })
+      refreshActive()
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Could not stop training'),
   })
@@ -191,7 +258,7 @@ export function useTimerActions() {
     onSuccess: (res) => {
       toast.success(res.data.message || 'Closing note saved')
       closeNoteDialog()
-      invalidate()
+      refreshActive()
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Could not save note'),
   })
@@ -218,6 +285,8 @@ export function useTasks(filters = {}) {
       const { data } = await api.get('/tasks', { params: filters })
       return data.data
     },
+    staleTime: 15_000,
+    placeholderData: (prev) => prev,
   })
 }
 
@@ -235,16 +304,22 @@ export function useTask(id, options = {}) {
 
 export function useTaskMutations() {
   const qc = useQueryClient()
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['tasks'] })
-    qc.invalidateQueries({ queryKey: ['task-suggestions'] })
-  }
 
   const create = useMutation({
     mutationFn: (body) => api.post('/tasks', body),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Task created')
-      invalidate()
+      const created = res.data.data
+      if (created) {
+        qc.setQueryData(['tasks', created._id], created)
+        qc.setQueriesData({ queryKey: ['tasks'] }, (old) => {
+          if (!Array.isArray(old)) return old
+          if (old.some((t) => String(t._id) === String(created._id))) return old
+          return [created, ...old]
+        })
+      }
+      void qc.invalidateQueries({ queryKey: ['task-suggestions'] })
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create task'),
   })
@@ -253,16 +328,58 @@ export function useTaskMutations() {
     mutationFn: ({ id, ...body }) => api.patch(`/tasks/${id}`, body),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Task updated')
-      invalidate()
+      const updated = res.data.data
+      if (updated) {
+        qc.setQueryData(['tasks', updated._id], updated)
+        qc.setQueriesData({ queryKey: ['tasks'] }, (old) => {
+          if (!Array.isArray(old)) return old
+          return old.map((t) =>
+            String(t._id) === String(updated._id) ? { ...t, ...updated } : t
+          )
+        })
+      }
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to update task'),
   })
 
+  /** Fast description-only save — patches cache, no full list/dashboard refetch */
+  const saveDescription = useMutation({
+    mutationFn: ({ id, description }) => api.patch(`/tasks/${id}`, { description }),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Task description saved')
+      const updated = res.data.data
+      if (updated) {
+        qc.setQueryData(['tasks', updated._id], updated)
+        qc.setQueriesData({ queryKey: ['tasks'] }, (old) => {
+          if (!Array.isArray(old)) return old
+          return old.map((t) =>
+            String(t._id) === String(updated._id)
+              ? {
+                  ...t,
+                  description: updated.description,
+                  descriptionHistory: updated.descriptionHistory,
+                  descriptionMentions: updated.descriptionMentions,
+                }
+              : t
+          )
+        })
+      }
+    },
+    onError: (err) =>
+      toast.error(err.response?.data?.message || 'Failed to save description'),
+  })
+
   const remove = useMutation({
     mutationFn: (id) => api.delete(`/tasks/${id}`),
-    onSuccess: (res) => {
+    onSuccess: (res, id) => {
       toast.success(res.data.message || 'Task deleted')
-      invalidate()
+      qc.removeQueries({ queryKey: ['tasks', id] })
+      qc.setQueriesData({ queryKey: ['tasks'] }, (old) => {
+        if (!Array.isArray(old)) return old
+        return old.filter((t) => String(t._id) !== String(id))
+      })
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete task'),
   })
@@ -272,7 +389,16 @@ export function useTaskMutations() {
       api.post(`/tasks/${id}/complete`, { completionDate }),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Task completed')
-      invalidate()
+      const updated = res.data.data
+      if (updated) {
+        qc.setQueryData(['tasks', updated._id], updated)
+        qc.setQueriesData({ queryKey: ['tasks'] }, (old) => {
+          if (!Array.isArray(old)) return old
+          return old.map((t) => (String(t._id) === String(updated._id) ? { ...t, ...updated } : t))
+        })
+      }
+      // Cache already patched — refresh dashboard in background only
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to complete task'),
   })
@@ -282,12 +408,20 @@ export function useTaskMutations() {
       api.post(`/tasks/${id}/ignore`, { ignoreDate, remarks }),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Task ignored')
-      invalidate()
+      const updated = res.data.data
+      if (updated) {
+        qc.setQueryData(['tasks', updated._id], updated)
+        qc.setQueriesData({ queryKey: ['tasks'] }, (old) => {
+          if (!Array.isArray(old)) return old
+          return old.map((t) => (String(t._id) === String(updated._id) ? { ...t, ...updated } : t))
+        })
+      }
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to ignore task'),
   })
 
-  return { create, update, remove, complete, ignore }
+  return { create, update, saveDescription, remove, complete, ignore }
 }
 
 export function useRecurringCheck(clientId, serviceId) {
@@ -319,15 +453,16 @@ export function useSuggestionMutations() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['task-suggestions'] })
     qc.invalidateQueries({ queryKey: ['tasks'] })
+    qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] })
   }
 
   const accept = useMutation({
     mutationFn: (id) => api.post(`/tasks/suggestions/${id}/accept`),
     onSuccess: (res) => {
-      toast.success(res.data.message || 'Suggested task created')
+      toast.success(res.data.message || 'Converted to task')
       invalidate()
     },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to accept suggestion'),
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to convert to task'),
   })
 
   const dismiss = useMutation({

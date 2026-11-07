@@ -14,7 +14,14 @@ import {
   useTimerActions,
   useRecurringCheck,
 } from '@/hooks/useTimer'
-import { useClients, useServices, useStages, useUsers, useManagers } from '@/hooks/useMasters'
+import {
+  useClients,
+  useServices,
+  useStages,
+  useUsers,
+  useManagers,
+  useProjects,
+} from '@/hooks/useMasters'
 import { useTimerStore } from '@/store/timerStore'
 import { DataTable } from '@/components/data-table/DataTable'
 import { FilterBar } from '@/components/data-table/FilterBar'
@@ -24,11 +31,9 @@ import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { FormField, FormRow } from '@/components/ui/form-field'
-import { MentionField } from '@/components/shared/MentionField'
 import { Sheet } from '@/components/ui/sheet'
-import { CompliancePeriodField } from '@/components/tasks/CompliancePeriodField'
 import { ReviewPointsField } from '@/components/tasks/ReviewPointsField'
-import { AlertField } from '@/components/tasks/AlertField'
+import { TaskDescriptionField } from '@/components/tasks/TaskDescriptionField'
 import {
   CompleteTaskDialog,
   IgnoreTaskDialog,
@@ -46,8 +51,10 @@ import {
 import { computeTargetDate } from '@/lib/businessDays'
 import {
   buildTaskTitle,
+  complianceInputFromDates,
   formatCompliancePeriodValue,
   inferCompliancePeriodInput,
+  periodEndFromComplianceInput,
   toDateInputValue,
 } from '@/lib/compliancePeriod'
 import { cn } from '@/lib/utils'
@@ -63,12 +70,15 @@ const FORM_ID = 'task-form'
 const EMPTY_FORM = {
   description: '',
   reviewPoints: [],
+  projectId: '',
   clientId: '',
   serviceId: '',
   assigneeId: '',
   helpingMemberId: '',
   stageId: '',
   priority: 'medium',
+  periodEndDate: '',
+  dueDate: '',
   compliancePeriodInput: '',
   taskReceiveDate: new Date().toISOString().slice(0, 10),
   querySentDate: '',
@@ -79,7 +89,6 @@ const EMPTY_FORM = {
   recurrenceFrequency: '',
   recurrenceStartDate: '',
   recurrenceEndDate: '',
-  alertId: '',
 }
 
 function emptyToNull(value) {
@@ -260,6 +269,7 @@ export default function TasksPage() {
   const [statusDatePrompt, setStatusDatePrompt] = useState(null)
   const [shareTask, setShareTask] = useState(null)
   const [reviewShare, setReviewShare] = useState(null)
+  const [descriptionHistory, setDescriptionHistory] = useState([])
   const skipTargetAuto = useRef(false)
   const openedFromQuery = useRef(null)
 
@@ -271,6 +281,8 @@ export default function TasksPage() {
   const { allowed: canEditTarget } = usePermission('tasks', 'editTargetDate')
   const { allowed: canComplete } = usePermission('tasks', 'complete')
   const { allowed: canIgnore } = usePermission('tasks', 'ignore')
+  const { allowed: canSaveTaskDescription } = usePermission('tasks', 'saveTaskDescription')
+  const { allowed: canEditTaskDescription } = usePermission('tasks', 'editTaskDescription')
 
   const filters = useMemo(
     () => ({
@@ -287,17 +299,18 @@ export default function TasksPage() {
 
   const { data = [], isLoading } = useTasks(filters)
   const { data: openTask } = useTask(openTaskId)
-  // While a task sheet is open, poll so replies from another profile appear without reload
+  // Backup poll while sheet is open — primary live updates come from SSE (useLiveQuerySync)
   const liveTaskId = sheetOpen && editing?._id ? editing._id : null
   const { data: liveTask } = useTask(liveTaskId, {
-    refetchInterval: liveTaskId ? 5_000 : false,
-    staleTime: 2_000,
+    refetchInterval: liveTaskId ? 30_000 : false,
+    staleTime: 10_000,
   })
-  const { create, update, complete, ignore } = useTaskMutations()
+  const { create, update, saveDescription, complete, ignore } = useTaskMutations()
   const { data: stages = [] } = useStages()
   const { data: users = [] } = useUsers()
   const { data: clients = [] } = useClients()
   const { data: services = [] } = useServices()
+  const { data: projects = [] } = useProjects()
   const { data: managers = [] } = useManagers()
   const { data: pendingShares = [] } = useShareRequests('pending', Boolean(user))
   const {
@@ -332,14 +345,40 @@ export default function TasksPage() {
     defaultValues: EMPTY_FORM,
   })
 
+  const projectId = form.watch('projectId')
   const clientId = form.watch('clientId')
   const serviceId = form.watch('serviceId')
+  const periodEndDate = form.watch('periodEndDate')
+  const dueDate = form.watch('dueDate')
   const compliancePeriodInput = form.watch('compliancePeriodInput')
   const taskReceiveDate = form.watch('taskReceiveDate')
   const querySentDate = form.watch('querySentDate')
   const replyReceivedDate = form.watch('replyReceivedDate')
   const assigneeId = form.watch('assigneeId')
   const isRecurring = form.watch('isRecurring')
+
+  const selectedProject = useMemo(
+    () => projects.find((p) => p._id === projectId),
+    [projects, projectId]
+  )
+
+  const projectServices = useMemo(() => {
+    if (!selectedProject) {
+      // Legacy tasks without a project: keep the current service selectable while editing
+      if (editing && serviceId) {
+        return services.filter((s) => String(s._id) === String(serviceId))
+      }
+      return []
+    }
+    const ids = new Set(
+      (selectedProject.serviceIds || []).map((s) => String(s._id || s))
+    )
+    // Include the currently selected service even if inactive / removed from project
+    if (serviceId) ids.add(String(serviceId))
+    return services
+      .filter((s) => ids.has(String(s._id)))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [selectedProject, services, editing, serviceId])
 
   const { data: recurringCheck } = useRecurringCheck(
     sheetOpen && !editing ? clientId : null,
@@ -356,27 +395,51 @@ export default function TasksPage() {
   }, [serviceId, services, editing, sheetOpen, form])
 
   const prevServiceId = useRef('')
-  const prevClientId = useRef('')
+  const prevProjectId = useRef('')
+
+  // When project changes: set client, clear service, reset recurring
+  useEffect(() => {
+    if (!sheetOpen || editing) return
+    if (prevProjectId.current && prevProjectId.current !== projectId) {
+      form.setValue('serviceId', '')
+      form.setValue('isRecurring', false)
+      form.setValue('recurrenceFrequency', '')
+      form.setValue('recurrenceStartDate', '')
+      form.setValue('recurrenceEndDate', '')
+    }
+    prevProjectId.current = projectId
+
+    if (!projectId) {
+      form.setValue('clientId', '')
+      return
+    }
+    const project = projects.find((p) => p._id === projectId)
+    if (!project) return
+    const nextClientId = project.clientId?._id || project.clientId || ''
+    form.setValue('clientId', nextClientId, { shouldValidate: true })
+  }, [projectId, projects, sheetOpen, editing, form])
+
   useEffect(() => {
     if (!sheetOpen || editing) return
     if (prevServiceId.current && prevServiceId.current !== serviceId) {
-      form.setValue('compliancePeriodInput', '')
       form.setValue('isRecurring', false)
       form.setValue('recurrenceFrequency', '')
-      form.setValue('alertId', '')
+      form.setValue('recurrenceStartDate', '')
+      form.setValue('recurrenceEndDate', '')
     }
     prevServiceId.current = serviceId
   }, [serviceId, sheetOpen, editing, form])
 
+  // Derive compliance period from the two task date fields + selected service type
   useEffect(() => {
-    if (!sheetOpen || editing) return
-    if (prevClientId.current && prevClientId.current !== clientId) {
-      form.setValue('isRecurring', false)
-      form.setValue('recurrenceFrequency', '')
-      form.setValue('alertId', '')
-    }
-    prevClientId.current = clientId
-  }, [clientId, sheetOpen, editing, form])
+    if (!sheetOpen) return
+    const service = services.find((s) => s._id === serviceId)
+    const input = complianceInputFromDates(
+      { periodEndDate, dueDate },
+      service?.compliancePeriodType
+    )
+    form.setValue('compliancePeriodInput', input, { shouldValidate: true })
+  }, [periodEndDate, dueDate, serviceId, services, sheetOpen, form])
 
   useEffect(() => {
     if (!sheetOpen || !taskReceiveDate || !serviceId) return
@@ -432,6 +495,7 @@ export default function TasksPage() {
 
   function openCreate() {
     setEditing(null)
+    setDescriptionHistory([])
     form.reset({
       ...EMPTY_FORM,
       taskReceiveDate: new Date().toISOString().slice(0, 10),
@@ -446,19 +510,30 @@ export default function TasksPage() {
     const service = services.find(
       (s) => s._id === (row.serviceId?._id || row.serviceId)
     )
+    const complianceInput = inferCompliancePeriodInput(row, service)
+    const editDueDate =
+      toDateInputValue(row.dueDate) ||
+      (service?.compliancePeriodType === 'due_date' ? complianceInput : '')
+    const editPeriodEnd =
+      periodEndFromComplianceInput(complianceInput, service?.compliancePeriodType) ||
+      editDueDate
+    setDescriptionHistory(row.descriptionHistory || [])
     form.reset({
       description: row.description || '',
       reviewPoints: (row.reviewPoints || []).map((point) => ({
         _id: point._id,
         description: point.description || '',
       })),
+      projectId: row.projectId?._id || row.projectId || '',
       clientId: row.clientId?._id || row.clientId || '',
       serviceId: row.serviceId?._id || row.serviceId || '',
       assigneeId: row.assigneeId?._id || row.assigneeId || '',
       helpingMemberId: row.helpingMemberId?._id || row.helpingMemberId || '',
       stageId: row.stageId?._id || row.stageId || '',
       priority: row.priority || 'medium',
-      compliancePeriodInput: inferCompliancePeriodInput(row, service),
+      periodEndDate: editPeriodEnd,
+      dueDate: editDueDate,
+      compliancePeriodInput: complianceInput,
       taskReceiveDate: toDateInputValue(row.taskReceiveDate),
       querySentDate: toDateInputValue(row.querySentDate),
       replyReceivedDate: toDateInputValue(row.replyReceivedDate),
@@ -468,7 +543,6 @@ export default function TasksPage() {
       recurrenceFrequency: '',
       recurrenceStartDate: '',
       recurrenceEndDate: '',
-      alertId: '',
     })
     setSheetOpen(true)
   }
@@ -517,21 +591,32 @@ export default function TasksPage() {
   }, [liveTask])
 
   async function onSubmit(values) {
+    const service = services.find((s) => s._id === values.serviceId)
+    const derivedCompliance = complianceInputFromDates(
+      { periodEndDate: values.periodEndDate, dueDate: values.dueDate },
+      service?.compliancePeriodType
+    )
+    const {
+      periodEndDate: _periodEndDate,
+      isRecurring,
+      recurrenceFrequency,
+      recurrenceStartDate,
+      recurrenceEndDate,
+      ...rest
+    } = values
     const payload = {
-      ...values,
+      ...rest,
+      compliancePeriodInput: derivedCompliance || values.compliancePeriodInput,
       reviewPoints: normalizeReviewPoints(values.reviewPoints),
       helpingMemberId: values.helpingMemberId || null,
       querySentDate: emptyToNull(values.querySentDate),
       replyReceivedDate: emptyToNull(values.replyReceivedDate),
       targetDate: values.targetDate || null,
-      dueDate: values.targetDate || values.taskReceiveDate || null,
-      isRecurring: showRecurringFields ? Boolean(values.isRecurring) : false,
-      recurrenceFrequency: values.isRecurring ? values.recurrenceFrequency || null : null,
-      recurrenceStartDate: values.isRecurring
-        ? emptyToNull(values.recurrenceStartDate)
-        : null,
-      recurrenceEndDate: values.isRecurring ? emptyToNull(values.recurrenceEndDate) : null,
-      alertId: values.isRecurring ? emptyToNull(values.alertId) : null,
+      dueDate: values.dueDate || values.targetDate || values.taskReceiveDate || null,
+      isRecurring: showRecurringFields ? Boolean(isRecurring) : false,
+      recurrenceFrequency: isRecurring ? recurrenceFrequency || null : null,
+      recurrenceStartDate: isRecurring ? emptyToNull(recurrenceStartDate) : null,
+      recurrenceEndDate: isRecurring ? emptyToNull(recurrenceEndDate) : null,
     }
     if (editing) {
       const {
@@ -539,7 +624,6 @@ export default function TasksPage() {
         recurrenceFrequency: _f,
         recurrenceStartDate: _s,
         recurrenceEndDate: _e,
-        alertId: _a,
         ...updatePayload
       } = payload
       await update.mutateAsync({ id: editing._id, ...updatePayload })
@@ -818,12 +902,9 @@ export default function TasksPage() {
     [canEdit, canComplete, canIgnore, active, startTaskTimer, openNoteDialog, user?._id]
   )
 
-  const emptyMasters = !clients.length || !stages.length
-  const activeClients = clients
-    .filter((c) => c.isActive !== false)
-    .sort((a, b) => a.organizationName.localeCompare(b.organizationName))
-  const activeServices = services
-    .filter((s) => s.isActive !== false)
+  const emptyMasters = !projects.length || !stages.length
+  const activeProjects = projects
+    .filter((p) => p.isActive !== false)
     .sort((a, b) => a.name.localeCompare(b.name))
   const editableStages = stages
     .filter(
@@ -832,7 +913,7 @@ export default function TasksPage() {
         s.systemKey !== 'completed' &&
         s.systemKey !== 'ignored'
     )
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
   const isSaving = create.isPending || update.isPending
   const editingClosed = isClosedTask(editing)
 
@@ -858,14 +939,10 @@ export default function TasksPage() {
       {emptyMasters && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Add at least one{' '}
-          <Link to="/clients" className="font-medium underline">
-            client
-          </Link>
-          ,{' '}
-          <Link to="/services" className="font-medium underline">
-            service
-          </Link>
-          , and{' '}
+          <Link to="/projects" className="font-medium underline">
+            project
+          </Link>{' '}
+          (with services) and{' '}
           <Link to="/stages" className="font-medium underline">
             stage
           </Link>{' '}
@@ -935,7 +1012,7 @@ export default function TasksPage() {
         <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-[9.5rem] shrink-0">
           <option value="">All statuses</option>
           {[...stages]
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name))
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
             .map((s) => (
               <option key={s._id} value={s._id}>
                 {s.name}
@@ -947,6 +1024,7 @@ export default function TasksPage() {
           <option value="low">Low</option>
           <option value="medium">Medium</option>
           <option value="high">High</option>
+          <option value="urgent">Urgent</option>
         </Select>
         <Select value={staffId} onChange={(e) => setStaffId(e.target.value)} className="w-[9.5rem] shrink-0">
           <option value="">All staff</option>
@@ -982,13 +1060,6 @@ export default function TasksPage() {
         getRowHeight={(params) => {
           const shared = Boolean(params.data?.isShared && params.data?.helpingMemberId)
           return shared ? 42 : 36
-        }}
-        getRowClass={(params) => {
-          if (!params.data || isClosedTask(params.data)) return undefined
-          const tone = dueStatus(params.data.dueDate)
-          if (tone === 'overdue') return 'ag-row-overdue'
-          if (tone === 'today' || tone === 'soon') return 'ag-row-due-soon'
-          return undefined
         }}
       />
 
@@ -1044,15 +1115,18 @@ export default function TasksPage() {
 
           <FormRow>
             <FormField
-              label="Client"
-              htmlFor="clientId"
-              error={form.formState.errors.clientId?.message}
+              label="Project"
+              htmlFor="projectId"
+              error={form.formState.errors.projectId?.message}
             >
-              <Select id="clientId" {...form.register('clientId')}>
-                <option value="">Select client…</option>
-                {activeClients.map((c) => (
-                  <option key={c._id} value={c._id}>
-                    {c.organizationName}
+              <Select id="projectId" {...form.register('projectId')}>
+                <option value="">Select project…</option>
+                {activeProjects.map((p) => (
+                  <option key={p._id} value={p._id}>
+                    {p.name}
+                    {p.clientId?.organizationName
+                      ? ` (${p.clientId.organizationName})`
+                      : ''}
                   </option>
                 ))}
               </Select>
@@ -1062,9 +1136,15 @@ export default function TasksPage() {
               htmlFor="serviceId"
               error={form.formState.errors.serviceId?.message}
             >
-              <Select id="serviceId" {...form.register('serviceId')}>
-                <option value="">Select service…</option>
-                {activeServices.map((s) => (
+              <Select
+                id="serviceId"
+                {...form.register('serviceId')}
+                disabled={!projectId}
+              >
+                <option value="">
+                  {projectId ? 'Select service…' : 'Select a project first…'}
+                </option>
+                {projectServices.map((s) => (
                   <option key={s._id} value={s._id}>
                     {s.name} ({s.estimatedHours}h)
                   </option>
@@ -1073,16 +1153,22 @@ export default function TasksPage() {
             </FormField>
           </FormRow>
 
-          {serviceId && (
-            <CompliancePeriodField
-              compliancePeriodType={selectedService?.compliancePeriodType}
-              value={compliancePeriodInput}
-              onChange={(v) =>
-                form.setValue('compliancePeriodInput', v, { shouldValidate: true })
-              }
-              error={form.formState.errors.compliancePeriodInput?.message}
-            />
-          )}
+          <FormRow>
+            <FormField
+              label="Year End/Qtr End/Month End"
+              htmlFor="periodEndDate"
+              error={form.formState.errors.periodEndDate?.message}
+            >
+              <Input id="periodEndDate" type="date" {...form.register('periodEndDate')} />
+            </FormField>
+            <FormField
+              label="Due Date"
+              htmlFor="dueDate"
+              error={form.formState.errors.dueDate?.message}
+            >
+              <Input id="dueDate" type="date" {...form.register('dueDate')} />
+            </FormField>
+          </FormRow>
 
           {showRecurringFields && (
             <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
@@ -1093,21 +1179,19 @@ export default function TasksPage() {
                   onChange={(e) => {
                     const yes = e.target.value === 'yes'
                     form.setValue('isRecurring', yes, { shouldValidate: true })
-                    if (yes && !form.getValues('recurrenceStartDate')) {
-                      form.setValue(
-                        'recurrenceStartDate',
-                        form.getValues('taskReceiveDate') ||
-                          new Date().toISOString().slice(0, 10)
-                      )
+                    if (!yes) {
+                      form.setValue('recurrenceFrequency', '')
+                      form.setValue('recurrenceStartDate', '')
+                      form.setValue('recurrenceEndDate', '')
                     }
-                    if (!yes) form.setValue('alertId', '')
                   }}
                 >
                   <option value="no">No - one-time task</option>
                   <option value="yes">Yes - set up recurrence</option>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Asked only the first time this client + service combination is created.
+                  This task is created now. Later occurrences appear as recurring suggestions
+                  until you convert them to tasks.
                 </p>
               </FormField>
 
@@ -1125,13 +1209,9 @@ export default function TasksPage() {
                       <option value="yearly">Yearly</option>
                     </Select>
                   </FormField>
-                  <AlertField
-                    value={form.watch('alertId')}
-                    onChange={(id) => form.setValue('alertId', id)}
-                  />
                   <FormRow>
                     <FormField
-                      label="Start Date"
+                      label="Next Start Date"
                       htmlFor="recurrenceStartDate"
                       error={form.formState.errors.recurrenceStartDate?.message}
                     >
@@ -1140,6 +1220,9 @@ export default function TasksPage() {
                         type="date"
                         {...form.register('recurrenceStartDate')}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Next occurrence appears on this date, then repeats on the same day.
+                      </p>
                     </FormField>
                     <FormField label="End Date" htmlFor="recurrenceEndDate">
                       <Input
@@ -1147,7 +1230,9 @@ export default function TasksPage() {
                         type="date"
                         {...form.register('recurrenceEndDate')}
                       />
-                      <p className="text-xs text-muted-foreground">Optional</p>
+                      <p className="text-xs text-muted-foreground">
+                        Optional. Recurrence stops after this date.
+                      </p>
                     </FormField>
                   </FormRow>
                 </>
@@ -1218,6 +1303,7 @@ export default function TasksPage() {
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
+                <option value="urgent">Urgent</option>
               </Select>
             </FormField>
             {editing?.createdAt ? (
@@ -1298,40 +1384,133 @@ export default function TasksPage() {
             </FormField>
           </FormRow>
 
-          <FormField label="Remarks" htmlFor="description">
-            <Controller
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <MentionField
-                  id="description"
-                  multiline
-                  rows={3}
-                  value={field.value || ''}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
-                  ref={field.ref}
-                  users={assignees}
-                  placeholder="Type @ to tag a teammate"
-                />
-              )}
-            />
-            <p className="text-xs text-muted-foreground">
-              Type @ to tag someone by name or email. Tagged people can be emailed later.
-            </p>
-          </FormField>
+          <Controller
+            control={form.control}
+            name="description"
+            render={({ field }) => (
+              <TaskDescriptionField
+                key={editing?._id || 'new-task'}
+                value={field.value || ''}
+                onChange={field.onChange}
+                users={assignees}
+                history={
+                  editing ? editing.descriptionHistory || descriptionHistory : descriptionHistory
+                }
+                onHistoryChange={setDescriptionHistory}
+                canSave={canSaveTaskDescription}
+                canEditDescription={canEditTaskDescription}
+                disabled={editingClosed || (editing ? !canEdit : !canAdd)}
+                onPersist={
+                  editing
+                    ? async (nextDescription) => {
+                        const res = await saveDescription.mutateAsync({
+                          id: editing._id,
+                          description: nextDescription,
+                        })
+                        const updated = res?.data?.data
+                        if (updated) {
+                          setEditing((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  description: updated.description,
+                                  descriptionHistory: updated.descriptionHistory,
+                                  descriptionMentions: updated.descriptionMentions,
+                                }
+                              : prev
+                          )
+                          setDescriptionHistory(updated.descriptionHistory || [])
+                        }
+                      }
+                    : undefined
+                }
+              />
+            )}
+          />
 
           <ReviewPointsField
             control={form.control}
             register={form.register}
             errors={form.formState.errors}
             disabled={editing ? !canEdit : !canAdd}
-            history={editing?.reviewPointsHistory || []}
             users={assignees}
             taskId={editing?._id}
             savedPoints={editing?.reviewPoints || []}
-            onTaskUpdated={(task) => {
-              if (task) setEditing(task)
+            onTaskUpdated={(payload) => {
+              if (!payload) return
+
+              // Live poll / sync of one conversation (other member sees edits/deletes)
+              if (payload.__chatSync && payload.pointId) {
+                setEditing((prev) => {
+                  if (!prev) return prev
+                  return {
+                    ...prev,
+                    reviewPoints: (prev.reviewPoints || []).map((p) => {
+                      if (String(p._id) !== String(payload.pointId)) return p
+                      return {
+                        ...p,
+                        replies: payload.replies || p.replies || [],
+                        description:
+                          payload.description !== undefined
+                            ? payload.description
+                            : p.description,
+                        descriptionEditedAt:
+                          payload.descriptionEditedAt !== undefined
+                            ? payload.descriptionEditedAt
+                            : p.descriptionEditedAt,
+                        descriptionDeletedAt:
+                          payload.descriptionDeletedAt !== undefined
+                            ? payload.descriptionDeletedAt
+                            : p.descriptionDeletedAt,
+                      }
+                    }),
+                  }
+                })
+                if (typeof payload.description === 'string') {
+                  const points = form.getValues('reviewPoints') || []
+                  form.setValue(
+                    'reviewPoints',
+                    points.map((point) =>
+                      String(point._id) === String(payload.pointId)
+                        ? { ...point, description: payload.description }
+                        : point
+                    ),
+                    { shouldDirty: false }
+                  )
+                }
+                return
+              }
+
+              // Fast chat reply/edit/delete patch (no full task reload)
+              if (payload.__replyPatch && payload.reply && payload.pointId) {
+                setEditing((prev) => {
+                  if (!prev) return prev
+                  return {
+                    ...prev,
+                    reviewPoints: (prev.reviewPoints || []).map((p) => {
+                      if (String(p._id) !== String(payload.pointId)) return p
+                      const replies = [...(p.replies || [])]
+                      const idx = replies.findIndex(
+                        (r) => String(r._id) === String(payload.reply._id)
+                      )
+                      if (idx >= 0) replies[idx] = { ...replies[idx], ...payload.reply }
+                      else replies.push(payload.reply)
+                      return { ...p, replies }
+                    }),
+                  }
+                })
+                return
+              }
+
+              setEditing(payload)
+              form.setValue(
+                'reviewPoints',
+                (payload.reviewPoints || []).map((point) => ({
+                  _id: point._id,
+                  description: point.description || '',
+                })),
+                { shouldDirty: false }
+              )
             }}
           />
         </form>
@@ -1342,9 +1521,10 @@ export default function TasksPage() {
         task={completeTask}
         loading={complete.isPending}
         onCancel={() => setCompleteTask(null)}
-        onConfirm={async ({ completionDate }) => {
-          await complete.mutateAsync({ id: completeTask._id, completionDate })
+        onConfirm={({ completionDate }) => {
+          const id = completeTask._id
           setCompleteTask(null)
+          complete.mutate({ id, completionDate })
         }}
       />
 
@@ -1353,9 +1533,10 @@ export default function TasksPage() {
         task={ignoreTask}
         loading={ignore.isPending}
         onCancel={() => setIgnoreTask(null)}
-        onConfirm={async ({ ignoreDate, remarks }) => {
-          await ignore.mutateAsync({ id: ignoreTask._id, ignoreDate, remarks })
+        onConfirm={({ ignoreDate, remarks }) => {
+          const id = ignoreTask._id
           setIgnoreTask(null)
+          ignore.mutate({ id, ignoreDate, remarks })
         }}
       />
 

@@ -20,10 +20,28 @@ const taskSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     description: { type: String, default: '' },
     descriptionMentions: { type: [taggedUserSchema], default: [] },
+    descriptionHistory: {
+      type: [
+        {
+          action: {
+            type: String,
+            enum: ['added', 'updated'],
+            required: true,
+          },
+          changedAt: { type: Date, default: Date.now },
+          changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+          description: { type: String, trim: true, default: '' },
+          previousDescription: { type: String, trim: true, default: '' },
+        },
+      ],
+      default: [],
+    },
     reviewPoints: {
       type: [
         {
           description: { type: String, trim: true, default: '' },
+          descriptionEditedAt: { type: Date, default: null },
+          descriptionDeletedAt: { type: Date, default: null },
           status: {
             type: String,
             enum: ['pending', 'in_progress', 'done'],
@@ -41,6 +59,15 @@ const taskSchema = new mongoose.Schema(
                 },
                 authorName: { type: String, trim: true, default: '' },
                 message: { type: String, trim: true, required: true },
+                // Quote / reply-to a specific message (null = review point root when preview set)
+                replyToId: {
+                  type: mongoose.Schema.Types.ObjectId,
+                  default: null,
+                },
+                replyToPreview: { type: String, trim: true, default: '' },
+                replyToAuthorName: { type: String, trim: true, default: '' },
+                editedAt: { type: Date, default: null },
+                deletedAt: { type: Date, default: null },
                 createdAt: { type: Date, default: Date.now },
               },
             ],
@@ -74,6 +101,11 @@ const taskSchema = new mongoose.Schema(
         },
       ],
       default: [],
+    },
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ProjectMaster',
+      default: null,
     },
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -110,7 +142,7 @@ const taskSchema = new mongoose.Schema(
     },
     priority: {
       type: String,
-      enum: ['low', 'medium', 'high'],
+      enum: ['low', 'medium', 'high', 'urgent'],
       default: 'medium',
     },
     compliancePeriodInput: { type: String, default: '' },
@@ -146,7 +178,11 @@ const taskSchema = new mongoose.Schema(
 
 taskSchema.index({ organizationId: 1, dueDate: -1 });
 taskSchema.index({ organizationId: 1, assigneeId: 1 });
+taskSchema.index({ organizationId: 1, helpingMemberId: 1 });
 taskSchema.index({ organizationId: 1, stageId: 1 });
+taskSchema.index({ organizationId: 1, targetDate: 1 });
 taskSchema.index({ organizationId: 1, taskCode: 1 }, { unique: true, sparse: true });
+taskSchema.index({ organizationId: 1, completedAt: 1 });
+taskSchema.index({ organizationId: 1, completedAt: 1, ignoredAt: 1, stageId: 1 });
 
 module.exports = mongoose.model('Task', taskSchema);

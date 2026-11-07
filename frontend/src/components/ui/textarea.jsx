@@ -123,7 +123,7 @@ export const Textarea = forwardRef(function Textarea(
   const showSpellUi = enableUk
 
   return (
-    <div className={cn('relative w-full', showSpellUi && 'uk-spell-shell')}>
+    <div className={cn('relative w-full min-w-0 max-w-full', showSpellUi && 'uk-spell-shell')}>
       {showSpellUi ? (
         <SpellcheckBackdrop
           text={mirrorText}
@@ -153,7 +153,7 @@ export const Textarea = forwardRef(function Textarea(
         onSelect={handleSelect}
         onScroll={handleScroll}
         className={cn(
-          'relative z-[1] flex min-h-[88px] w-full resize-y rounded-lg border border-border bg-transparent px-3 py-2 text-sm leading-5 text-foreground placeholder:text-muted-foreground transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50',
+          'relative z-[1] flex min-h-[88px] w-full resize-y rounded-lg border border-border bg-transparent px-3 py-2 text-sm leading-5 text-foreground placeholder:text-muted-foreground transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 read-only:cursor-default read-only:bg-slate-50 read-only:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50',
           !showSpellUi && 'bg-white',
           className
         )}

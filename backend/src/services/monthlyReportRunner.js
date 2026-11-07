@@ -4,6 +4,7 @@ const Organization = require('../models/Organization');
 const MonthlyReportRun = require('../models/MonthlyReportRun');
 const { buildMonthlySnapshot, normalizeTimezone, currentPeriodKey } = require('./monthlyStatusReport');
 const { buildMonthlyReportWorkbook, periodLabel } = require('./monthlyReportExcel');
+const config = require('../config/env');
 const { sendMonthlyStatusReportEmail } = require('./mailer');
 const { DEFAULT_MONTHLY_REPORT_COLUMNS } = require('../constants/monthlyReportColumns');
 
@@ -131,7 +132,7 @@ async function deliverToRecipients({
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       entry.attempts = attempt;
       try {
-        await sendMonthlyStatusReportEmail({
+        const result = await sendMonthlyStatusReportEmail({
           to: recipient.email,
           recipientName: recipient.name,
           orgName,
@@ -143,8 +144,12 @@ async function deliverToRecipients({
           fileBuffer,
           isTest,
         });
+        // Outside local/dev, a mocked send means SMTP is missing — do not mark success
+        if (result?.mocked && !config.isDev) {
+          throw new Error('SMTP not configured — email was not delivered');
+        }
         entry.status = 'sent';
-        entry.error = '';
+        entry.error = result?.mocked ? 'dev_mocked' : '';
         break;
       } catch (err) {
         entry.status = 'failed';
@@ -384,7 +389,7 @@ async function retryFailedRun(runId) {
     if (entry.status === 'sent') continue;
     entry.attempts = (entry.attempts || 0) + 1;
     try {
-      await sendMonthlyStatusReportEmail({
+      const result = await sendMonthlyStatusReportEmail({
         to: entry.email,
         recipientName: '',
         orgName: org.name,
@@ -396,8 +401,11 @@ async function retryFailedRun(runId) {
         fileBuffer: run.fileData,
         isTest: false,
       });
+      if (result?.mocked && !config.isDev) {
+        throw new Error('SMTP not configured — email was not delivered');
+      }
       entry.status = 'sent';
-      entry.error = '';
+      entry.error = result?.mocked ? 'dev_mocked' : '';
     } catch (err) {
       entry.status = 'failed';
       entry.error = err.message || 'Send failed';

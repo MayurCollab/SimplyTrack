@@ -99,17 +99,30 @@ const reviewPointSchema = z.object({
 
 const reviewPointReplySchema = z.object({
   message: z.string().trim().min(2, 'Reply must be at least 2 characters'),
+  replyToId: z.string().trim().optional().nullable(),
+  replyToPreview: z.string().trim().max(240).optional().default(''),
+  replyToAuthorName: z.string().trim().max(120).optional().default(''),
+});
+
+const reviewPointReplyEditSchema = z.object({
+  message: z.string().trim().min(2, 'Reply must be at least 2 characters'),
+});
+
+const reviewPointRootSchema = z.object({
+  description: z.string().trim().min(1, 'Message is required').optional(),
+  softDelete: z.boolean().optional(),
 });
 
 const taskSchema = z.object({
   description: z.string().optional().default(''),
   reviewPoints: z.array(reviewPointSchema).optional().default([]),
+  projectId: objectId,
   clientId: objectId,
   serviceId: objectId,
   assigneeId: objectId,
   helpingMemberId: z.string().optional().nullable(),
   stageId: objectId,
-  priority: z.enum(['low', 'medium', 'high']).optional().default('medium'),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).optional().default('medium'),
   compliancePeriodInput: z.string().trim().min(1, 'Compliance period is required'),
   taskReceiveDate: z.string().or(z.date()),
   querySentDate: optionalDate,
@@ -121,7 +134,6 @@ const taskSchema = z.object({
   recurrenceFrequency: z.enum(['monthly', 'quarterly', 'yearly']).optional().nullable(),
   recurrenceStartDate: z.string().or(z.date()).optional().nullable(),
   recurrenceEndDate: z.string().or(z.date()).optional().nullable(),
-  alertId: z.string().optional().nullable(),
 }).superRefine((data, ctx) => {
   if (data.isRecurring) {
     if (!data.recurrenceFrequency) {
@@ -135,7 +147,7 @@ const taskSchema = z.object({
       ctx.addIssue({
         code: 'custom',
         path: ['recurrenceStartDate'],
-        message: 'Start date is required for recurring tasks',
+        message: 'Next start date is required for recurring tasks',
       });
     }
   }
@@ -144,12 +156,13 @@ const taskSchema = z.object({
 const taskUpdateSchema = z.object({
   description: z.string().optional(),
   reviewPoints: z.array(reviewPointSchema).optional(),
+  projectId: z.string().optional().nullable(),
   clientId: z.string().optional(),
   serviceId: z.string().optional(),
   assigneeId: z.string().optional(),
   helpingMemberId: z.string().optional().nullable(),
   stageId: z.string().optional(),
-  priority: z.enum(['low', 'medium', 'high']).optional(),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
   compliancePeriodInput: z.string().trim().min(1).optional(),
   taskReceiveDate: z.string().or(z.date()).optional(),
   querySentDate: optionalDate,
@@ -210,19 +223,51 @@ const correctDurationSchema = z.object({
   correctedDurationMinutes: z.coerce.number().min(0),
 });
 
+const adminStopTimerSchema = z.object({
+  reason: z
+    .string()
+    .trim()
+    .max(500, 'Reason must be at most 500 characters')
+    .optional()
+    .default(''),
+});
+
+const timeAdjustmentCreateSchema = z.object({
+  kind: z.enum(['correct_existing', 'add_missing']),
+  timeLogId: z.string().optional().nullable(),
+  type: z.enum(['task', 'break', 'training']).optional(),
+  taskId: z.string().optional().nullable(),
+  requestedStartedAt: z.string().min(1, 'Start time is required'),
+  requestedStoppedAt: z.string().min(1, 'Stop time is required'),
+  description: z
+    .string()
+    .trim()
+    .min(10, 'Description must be at least 10 characters')
+    .max(2000),
+});
+
+const timeAdjustmentReviewSchema = z.object({
+  reviewerComment: z
+    .string()
+    .trim()
+    .max(500, 'Comment must be at most 500 characters')
+    .optional()
+    .default(''),
+  appliedStartedAt: z.string().optional(),
+  appliedStoppedAt: z.string().optional(),
+});
+
 const projectSchema = z.object({
   name: z.string().trim().min(1, 'Project name is required'),
   clientId: objectId,
-  assignedTo: z.array(z.string()).optional().default([]),
-  estimatedTime: z.coerce.number().min(0).optional().default(0),
+  serviceIds: z.array(z.string()).min(1, 'Select at least one service'),
   isActive: z.boolean().optional().default(true),
 });
 
 const projectUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   clientId: z.string().optional(),
-  assignedTo: z.array(z.string()).optional(),
-  estimatedTime: z.coerce.number().min(0).optional(),
+  serviceIds: z.array(z.string()).min(1).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -250,6 +295,8 @@ const permissionUpdateSchema = z.object({
             complete: z.boolean().optional(),
             ignore: z.boolean().optional(),
             editTargetDate: z.boolean().optional(),
+            saveTaskDescription: z.boolean().optional(),
+            editTaskDescription: z.boolean().optional(),
           })
           .optional()
           .default({}),
@@ -342,6 +389,8 @@ module.exports = {
   taskSchema,
   taskUpdateSchema,
   reviewPointReplySchema,
+  reviewPointReplyEditSchema,
+  reviewPointRootSchema,
   closingNoteSchema,
   completeTaskSchema,
   ignoreTaskSchema,
@@ -349,6 +398,9 @@ module.exports = {
   taskShareRequestSchema,
   taskShareReviewSchema,
   correctDurationSchema,
+  adminStopTimerSchema,
+  timeAdjustmentCreateSchema,
+  timeAdjustmentReviewSchema,
   projectSchema,
   projectUpdateSchema,
   alertSchema,

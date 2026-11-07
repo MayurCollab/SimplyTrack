@@ -1,20 +1,38 @@
 const ProjectMaster = require('../models/ProjectMaster');
 const ClientMaster = require('../models/ClientMaster');
-const User = require('../models/User');
+const ServiceMaster = require('../models/ServiceMaster');
 const { orgFilter } = require('../utils/orgScope');
 
 const POPULATE = [
   { path: 'clientId', select: 'organizationName email isActive' },
-  { path: 'assignedTo', select: 'name email role' },
+  {
+    path: 'serviceIds',
+    select: 'name estimatedHours compliancePeriodType turnaroundBusinessDays isActive',
+  },
 ];
+
+async function validateServices(orgId, serviceIds = []) {
+  if (!serviceIds.length) {
+    return { ok: false, message: 'Select at least one service' };
+  }
+  const count = await ServiceMaster.countDocuments({
+    _id: { $in: serviceIds },
+    organizationId: orgId,
+    isActive: true,
+  });
+  if (count !== serviceIds.length) {
+    return { ok: false, message: 'One or more services are invalid' };
+  }
+  return { ok: true };
+}
 
 async function list(req, res, next) {
   try {
     const filter = orgFilter(req.user);
-    const { search, clientId, assigneeId } = req.query;
+    const { search, clientId, serviceId } = req.query;
 
     if (clientId) filter.clientId = clientId;
-    if (assigneeId) filter.assignedTo = assigneeId;
+    if (serviceId) filter.serviceIds = serviceId;
     if (search) {
       filter.name = { $regex: search.trim(), $options: 'i' };
     }
@@ -33,7 +51,7 @@ async function list(req, res, next) {
 async function create(req, res, next) {
   try {
     const orgId = orgFilter(req.user).organizationId;
-    const { name, clientId, assignedTo = [], estimatedTime = 0, isActive } = req.body;
+    const { name, clientId, serviceIds = [], isActive } = req.body;
 
     const client = await ClientMaster.findOne({
       _id: clientId,
@@ -43,28 +61,21 @@ async function create(req, res, next) {
       return res.status(400).json({ message: 'Invalid client' });
     }
 
-    if (assignedTo.length) {
-      const count = await User.countDocuments({
-        _id: { $in: assignedTo },
-        organizationId: orgId,
-        isActive: true,
-      });
-      if (count !== assignedTo.length) {
-        return res.status(400).json({ message: 'One or more assignees are invalid' });
-      }
+    const servicesCheck = await validateServices(orgId, serviceIds);
+    if (!servicesCheck.ok) {
+      return res.status(400).json({ message: servicesCheck.message });
     }
 
     const project = await ProjectMaster.create({
       organizationId: orgId,
       name,
       clientId,
-      assignedTo,
-      estimatedTime,
+      serviceIds,
       isActive: isActive ?? true,
     });
 
-    const populated = await ProjectMaster.findById(project._id).populate(POPULATE).lean();
-    res.status(201).json({ data: populated, message: 'Project created' });
+    await project.populate(POPULATE);
+    res.status(201).json({ data: project.toObject(), message: 'Project created' });
   } catch (err) {
     next(err);
   }
@@ -79,10 +90,9 @@ async function update(req, res, next) {
     });
     if (!project) return res.status(404).json({ message: 'Project not found' });
 
-    const { name, clientId, assignedTo, estimatedTime, isActive } = req.body;
+    const { name, clientId, serviceIds, isActive } = req.body;
 
     if (name != null) project.name = name;
-    if (estimatedTime != null) project.estimatedTime = estimatedTime;
     if (isActive !== undefined) project.isActive = isActive;
 
     if (clientId) {
@@ -91,17 +101,12 @@ async function update(req, res, next) {
       project.clientId = clientId;
     }
 
-    if (assignedTo !== undefined) {
-      if (assignedTo.length) {
-        const count = await User.countDocuments({
-          _id: { $in: assignedTo },
-          organizationId: orgId,
-        });
-        if (count !== assignedTo.length) {
-          return res.status(400).json({ message: 'One or more assignees are invalid' });
-        }
+    if (serviceIds !== undefined) {
+      const servicesCheck = await validateServices(orgId, serviceIds);
+      if (!servicesCheck.ok) {
+        return res.status(400).json({ message: servicesCheck.message });
       }
-      project.assignedTo = assignedTo;
+      project.serviceIds = serviceIds;
     }
 
     await project.save();

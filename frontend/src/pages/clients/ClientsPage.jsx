@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Pencil, Plus } from 'lucide-react'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { clientSchema } from '@/lib/schemas'
 import { useAppForm } from '@/hooks/useAppForm'
 import { getSystemTimezone, getTimezoneOptions, normalizeTimezone } from '@/lib/timezones'
@@ -13,8 +13,9 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { FormField, FormSwitchRow } from '@/components/ui/form-field'
+import { FormField, FormRow, FormSwitchRow } from '@/components/ui/form-field'
 import { Sheet } from '@/components/ui/sheet'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 const FORM_ID = 'client-form'
 const SYSTEM_TIMEZONE = getSystemTimezone()
@@ -24,12 +25,14 @@ export default function ClientsPage() {
   const [search, setSearch] = useState('')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [deleteId, setDeleteId] = useState(null)
 
   const { allowed: canAdd } = usePermission('clients', 'add')
   const { allowed: canEdit } = usePermission('clients', 'edit')
+  const { allowed: canDelete } = usePermission('clients', 'delete')
 
   const { data = [], isLoading } = useClients(search)
-  const { create, update, updateStatus } = useClientMutations()
+  const { create, update, updateStatus, remove } = useClientMutations()
 
   const form = useAppForm({
     resolver: zodResolver(clientSchema),
@@ -107,17 +110,29 @@ export default function ClientsPage() {
       },
       {
         headerName: 'Actions',
-        width: 80,
+        width: 110,
         sortable: false,
-        cellRenderer: (p) =>
-          canEdit ? (
-            <button type="button" onClick={() => openEdit(p.data)} className="rounded p-1 hover:bg-muted">
-              <Pencil className="size-4 text-muted-foreground" />
-            </button>
-          ) : null,
+        cellRenderer: (p) => (
+          <div className="flex h-full items-center gap-1">
+            {canEdit && (
+              <button type="button" onClick={() => openEdit(p.data)} className="rounded p-1 hover:bg-muted">
+                <Pencil className="size-4 text-muted-foreground" />
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => setDeleteId(p.data._id)}
+                className="rounded p-1 hover:bg-muted"
+              >
+                <Trash2 className="size-4 text-destructive" />
+              </button>
+            )}
+          </div>
+        ),
       },
     ],
-    [canEdit, updateStatus]
+    [canEdit, canDelete, updateStatus]
   )
 
   const isSaving = create.isPending || update.isPending
@@ -145,7 +160,7 @@ export default function ClientsPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         title={editing ? 'Edit Client' : 'Add Client'}
-        size="xl"
+        size="md"
         footer={
           <>
             <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
@@ -157,7 +172,7 @@ export default function ClientsPage() {
           </>
         }
       >
-        <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+        <form id={FORM_ID} onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
           <FormField
             label="Organization Name"
             htmlFor="organizationName"
@@ -167,13 +182,14 @@ export default function ClientsPage() {
             <Input id="organizationName" {...form.register('organizationName')} />
           </FormField>
 
-          <FormField label="Email" htmlFor="email" error={form.formState.errors.email?.message}>
-            <Input id="email" type="email" autoComplete="email" {...form.register('email')} />
-          </FormField>
-
-          <FormField label="Website URL" htmlFor="websiteUrl">
-            <Input id="websiteUrl" placeholder="https://" {...form.register('websiteUrl')} />
-          </FormField>
+          <FormRow>
+            <FormField label="Email" htmlFor="email" error={form.formState.errors.email?.message}>
+              <Input id="email" type="email" autoComplete="email" {...form.register('email')} />
+            </FormField>
+            <FormField label="Website URL" htmlFor="websiteUrl">
+              <Input id="websiteUrl" placeholder="https://" {...form.register('websiteUrl')} />
+            </FormField>
+          </FormRow>
 
           <FormField label="Timezone" htmlFor="timezone">
             <Select id="timezone" {...form.register('timezone')}>
@@ -186,7 +202,7 @@ export default function ClientsPage() {
           </FormField>
 
           <FormField label="Description" htmlFor="description">
-            <Textarea id="description" rows={3} {...form.register('description')} />
+            <Textarea id="description" rows={2} {...form.register('description')} />
           </FormField>
 
           <FormSwitchRow label="Active">
@@ -197,6 +213,18 @@ export default function ClientsPage() {
           </FormSwitchRow>
         </form>
       </Sheet>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        title="Delete client?"
+        message="This client will be permanently removed. Clients linked to projects or tasks cannot be deleted."
+        loading={remove.isPending}
+        onCancel={() => setDeleteId(null)}
+        onConfirm={async () => {
+          await remove.mutateAsync(deleteId)
+          setDeleteId(null)
+        }}
+      />
     </div>
   )
 }

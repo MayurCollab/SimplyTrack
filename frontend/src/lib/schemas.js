@@ -88,13 +88,16 @@ export const taskSchema = z
   .object({
     description: z.string().optional().default(''),
     reviewPoints: z.array(reviewPointSchema).optional().default([]),
+    projectId: z.string().min(1, 'Project is required'),
     clientId: z.string().min(1, 'Client is required'),
     serviceId: z.string().min(1, 'Service is required'),
     assigneeId: z.string().min(1, 'Assignee is required'),
     helpingMemberId: z.string().optional().default(''),
     stageId: z.string().min(1, 'Status is required'),
-    priority: z.enum(['low', 'medium', 'high']).default('medium'),
-    compliancePeriodInput: z.string().min(1, 'Compliance period is required'),
+    priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
+    periodEndDate: z.string().min(1, 'Year End/Qtr End/Month End is required'),
+    dueDate: z.string().min(1, 'Due Date is required'),
+    compliancePeriodInput: z.string().optional().default(''),
     taskReceiveDate: z.string().min(1, 'Task receive date is required'),
     querySentDate: z.string().optional().default(''),
     replyReceivedDate: z.string().optional().default(''),
@@ -104,7 +107,6 @@ export const taskSchema = z
     recurrenceFrequency: z.string().optional().default(''),
     recurrenceStartDate: z.string().optional().default(''),
     recurrenceEndDate: z.string().optional().default(''),
-    alertId: z.string().optional().default(''),
   })
   .superRefine((data, ctx) => {
     if (data.isRecurring) {
@@ -119,7 +121,7 @@ export const taskSchema = z
         ctx.addIssue({
           code: 'custom',
           path: ['recurrenceStartDate'],
-          message: 'Start date is required',
+          message: 'Next start date is required',
         })
       }
     }
@@ -133,7 +135,6 @@ export const platformAdminSchema = z.object({
 export const projectSchema = z.object({
   name: z.string().trim().min(1, 'Project name is required'),
   clientId: z.string().min(1, 'Client is required'),
-  assignedTo: z.array(z.string()).optional().default([]),
-  estimatedTime: z.coerce.number().min(0, 'Estimated time cannot be negative').default(0),
+  serviceIds: z.array(z.string()).min(1, 'Select at least one service'),
   isActive: z.boolean().optional().default(true),
 })

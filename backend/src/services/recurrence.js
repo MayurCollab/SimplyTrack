@@ -113,11 +113,30 @@ function dueDateFromComplianceInput(input, compliancePeriodType) {
 
 /**
  * Suggest the next task the day after the next compliance period ends.
+ * Kept for compatibility; recurring schedule now uses startDate + frequency.
  */
 function suggestAtFromComplianceInput(input, compliancePeriodType) {
   const periodEnd = complianceInputToDate(input, compliancePeriodType);
   if (!periodEnd) return null;
   return dayAfter(periodEnd);
+}
+
+function startOfDay(date) {
+  if (typeof date === 'string') {
+    const raw = date.trim();
+    const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (ymd) {
+      return new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+    }
+  }
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** Next calendar occurrence after `date` based on recurrence frequency. */
+function advanceSuggestAt(date, frequency) {
+  return addMonths(startOfDay(date), monthsForFrequency(frequency));
 }
 
 module.exports = {
@@ -127,5 +146,9 @@ module.exports = {
   complianceInputToDate,
   dateToComplianceInput,
   dayAfter,
+  startOfDay,
+  advanceSuggestAt,
+  addMonths,
+  monthsForFrequency,
   FREQUENCIES: ['monthly', 'quarterly', 'yearly'],
 };

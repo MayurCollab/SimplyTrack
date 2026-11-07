@@ -1,5 +1,8 @@
+const mongoose = require('mongoose');
 const MonthlyReportRun = require('../models/MonthlyReportRun');
 const MonthlyReportJobLog = require('../models/MonthlyReportJobLog');
+const TaskDailySnapshot = require('../models/TaskDailySnapshot');
+const Organization = require('../models/Organization');
 const Settings = require('../models/Settings');
 const User = require('../models/User');
 const { orgFilter } = require('../utils/orgScope');
@@ -9,6 +12,14 @@ const {
 } = require('../services/monthlyStatusReport');
 const { runMonthlyStatusReport } = require('../services/monthlyReportRunner');
 const { previousPeriodKey } = require('../services/monthlyReportJob');
+const {
+  istDateKey,
+  previousIstDateKey,
+  captureOrganizationSnapshot,
+  buildDailyReportWorkbook,
+  buildManagerSections,
+} = require('../services/dailyStatusSnapshot');
+const { DEFAULT_MONTHLY_REPORT_COLUMNS } = require('../constants/monthlyReportColumns');
 
 function serializeRun(run, { includeFile = false } = {}) {
   const base = {
@@ -208,10 +219,253 @@ async function sendTest(req, res, next) {
   }
 }
 
+async function listDailySnapshots(req, res, next) {
+  try {
+    const { organizationId } = orgFilter(req.user);
+    const snapshots = await TaskDailySnapshot.find({ organizationId })
+      .select(
+        'dateKey capturedAt source taskCount memberCount summary.open summary.working summary.completed summary.ignored members.userId members.userName members.total members.working members.completed members.ignored'
+      )
+      .sort({ dateKey: -1 })
+      .limit(90)
+      .lean();
+
+    res.json({
+      data: snapshots.map((s) => ({
+        _id: s._id,
+        dateKey: s.dateKey,
+        capturedAt: s.capturedAt,
+        source: s.source,
+        taskCount: s.taskCount,
+        memberCount: s.memberCount ?? s.members?.length ?? 0,
+        open: s.summary?.working ?? s.summary?.open ?? 0,
+        working: s.summary?.working ?? s.summary?.open ?? 0,
+        completed: s.summary?.completed ?? 0,
+        ignored: s.summary?.ignored ?? 0,
+        members: (s.members || []).map((m) => ({
+          userId: m.userId,
+          userName: m.userName,
+          total: m.total,
+          working: m.working,
+          completed: m.completed,
+          ignored: m.ignored,
+        })),
+      })),
+      meta: {
+        timezone: 'Asia/Kolkata',
+        schedule: '0 0 * * * Asia/Kolkata',
+        storage: 'database',
+        emailed: false,
+        todayKey: istDateKey(),
+        yesterdayKey: previousIstDateKey(),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Full per-member task list for one date (from DB — not email). */
+async function getDailySnapshotDetail(req, res, next) {
+  try {
+    const { organizationId } = orgFilter(req.user);
+    const dateKey = String(req.query.date || req.params.dateKey || '').trim();
+    const userIdRaw = String(req.query.userId || '').trim();
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+      return res.status(400).json({
+        message: 'Provide date as YYYY-MM-DD',
+      });
+    }
+
+    const snapshot = await TaskDailySnapshot.findOne({
+      organizationId,
+      dateKey,
+    }).lean();
+
+    if (!snapshot) {
+      return res.status(404).json({
+        message: `No database snapshot for ${dateKey}. Click Capture now, or wait for midnight IST.`,
+      });
+    }
+
+    const managers = buildManagerSections(snapshot, userIdRaw || null);
+    const members = managers.flatMap((g) => g.members);
+    const taskCount = members.reduce((n, m) => n + (m.total || 0), 0);
+
+    res.json({
+      data: {
+        _id: snapshot._id,
+        dateKey: snapshot.dateKey,
+        capturedAt: snapshot.capturedAt,
+        source: snapshot.source,
+        taskCount,
+        memberCount: members.length,
+        managerCount: managers.length,
+        summary: {
+          working: members.reduce((n, m) => n + (m.working || 0), 0),
+          completed: members.reduce((n, m) => n + (m.completed || 0), 0),
+          ignored: members.reduce((n, m) => n + (m.ignored || 0), 0),
+        },
+        // Manager → team → full task list
+        managers: managers.map((g) => ({
+          managerId: g.managerId,
+          managerName: g.managerName,
+          memberCount: g.memberCount,
+          taskCount: g.taskCount,
+          members: g.members.map((m) => ({
+            userId: m.userId,
+            userName: m.userName,
+            total: m.total,
+            working: m.working,
+            completed: m.completed,
+            ignored: m.ignored,
+            tasks: (m.tasks || []).map((t) => ({
+              taskId: t.taskId,
+              taskCode: t.taskCode,
+              title: t.title,
+              clientName: t.clientName,
+              serviceName: t.serviceName,
+              stageName: t.stageName,
+              lifecycle:
+                t.lifecycleLabel ||
+                (t.lifecycle === 'Open' ? 'Working' : t.lifecycle),
+              priority: t.priority,
+              dueDate: t.dueDate,
+              budgetHours: t.budgetHours,
+              loggedHours: t.loggedHours,
+            })),
+          })),
+        })),
+        // Kept for older clients
+        members: members.map((m) => ({
+          userId: m.userId,
+          userName: m.userName,
+          total: m.total,
+          working: m.working,
+          completed: m.completed,
+          ignored: m.ignored,
+          tasks: m.tasks || [],
+        })),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function downloadDailySnapshot(req, res, next) {
+  try {
+    const { organizationId } = orgFilter(req.user);
+    const dateKey = String(req.query.date || req.body?.date || '').trim();
+    const userIdRaw = String(req.query.userId || req.body?.userId || '').trim();
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+      return res.status(400).json({
+        message: 'Provide date as YYYY-MM-DD (IST snapshot date)',
+      });
+    }
+
+    let userId = null;
+    if (userIdRaw) {
+      if (!mongoose.Types.ObjectId.isValid(userIdRaw)) {
+        return res.status(400).json({ message: 'Invalid member id' });
+      }
+      userId = userIdRaw;
+    }
+
+    const snapshot = await TaskDailySnapshot.findOne({
+      organizationId,
+      dateKey,
+    }).lean();
+
+    if (!snapshot) {
+      return res.status(404).json({
+        message: `No status snapshot for ${dateKey}. Snapshots are saved daily at 12:00 AM IST. Use “Capture now” if you need today’s state.`,
+      });
+    }
+
+    const org = await Organization.findById(organizationId).select('name').lean();
+    const settings = await Settings.findOne({ organizationId })
+      .select('monthlyStatusReport.selectedColumns')
+      .lean();
+    const columns =
+      settings?.monthlyStatusReport?.selectedColumns?.length > 0
+        ? settings.monthlyStatusReport.selectedColumns
+        : DEFAULT_MONTHLY_REPORT_COLUMNS;
+
+    const { buffer, fileName } = await buildDailyReportWorkbook({
+      orgName: org?.name || 'Organization',
+      snapshot,
+      userId,
+      columns,
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${fileName.replace(/"/g, '')}"`
+    );
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Capture current task status for a date (default: previous IST day, same as midnight job). */
+async function captureDailySnapshotNow(req, res, next) {
+  try {
+    const { organizationId } = orgFilter(req.user);
+    const requested = String(req.body?.date || '').trim();
+    const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(requested)
+      ? requested
+      : previousIstDateKey();
+
+    const snap = await captureOrganizationSnapshot({
+      organizationId,
+      dateKey,
+      source: 'manual',
+    });
+
+    res.json({
+      data: {
+        _id: snap._id,
+        dateKey: snap.dateKey,
+        capturedAt: snap.capturedAt,
+        source: snap.source,
+        taskCount: snap.taskCount,
+        memberCount: snap.memberCount ?? snap.members?.length ?? 0,
+        open: snap.summary?.working ?? snap.summary?.open ?? 0,
+        working: snap.summary?.working ?? snap.summary?.open ?? 0,
+        completed: snap.summary?.completed ?? 0,
+        ignored: snap.summary?.ignored ?? 0,
+        members: (snap.members || []).map((m) => ({
+          userId: m.userId,
+          userName: m.userName,
+          total: m.total,
+          working: m.working,
+          completed: m.completed,
+          ignored: m.ignored,
+        })),
+      },
+      message: `Saved to database for ${dateKey}: ${snap.taskCount} tasks across ${snap.memberCount ?? snap.members?.length ?? 0} members (not emailed)`,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listRuns,
   getRun,
   downloadRun,
   listJobLogs,
   sendTest,
+  listDailySnapshots,
+  getDailySnapshotDetail,
+  downloadDailySnapshot,
+  captureDailySnapshotNow,
 };

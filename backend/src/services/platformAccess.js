@@ -1,7 +1,9 @@
 const Organization = require('../models/Organization');
 const User = require('../models/User');
+const { createTtlCache } = require('../utils/ttlCache');
 
 const SEED_EMAIL = 'mayur.kumadra@collabsoftech.com.au';
+const orgActiveCache = createTtlCache({ ttlMs: 60_000, maxSize: 200 });
 
 const PERSON_FIELDS = [
   'createdBy',
@@ -64,8 +66,15 @@ async function ensureSeedSuperAdmin() {
 async function organizationBlockMessage(user) {
   if (!user || user.isSuperAdmin) return null;
   if (!user.organizationId) return 'No organization context';
-  const org = await Organization.findById(user.organizationId).select('isActive');
-  if (!org || org.isActive === false) return 'This organization is not active';
+
+  const cacheKey = String(user.organizationId);
+  let isActive = orgActiveCache.get(cacheKey);
+  if (isActive === undefined) {
+    const org = await Organization.findById(user.organizationId).select('isActive').lean();
+    isActive = Boolean(org && org.isActive !== false);
+    orgActiveCache.set(cacheKey, isActive);
+  }
+  if (!isActive) return 'This organization is not active';
   return null;
 }
 
@@ -91,6 +100,7 @@ async function buildSessionUser(user) {
 
   const session = {
     id: user._id,
+    _id: user._id, // same id — frontend chat/permissions often read user._id
     name: user.name,
     email: user.email,
     role: user.role,

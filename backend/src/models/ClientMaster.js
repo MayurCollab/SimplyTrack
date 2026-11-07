@@ -18,5 +18,6 @@ const clientSchema = new mongoose.Schema(
 );
 
 clientSchema.index({ organizationId: 1, organizationName: 1 });
+clientSchema.index({ organizationId: 1, createdAt: 1 });
 
 module.exports = mongoose.model('ClientMaster', clientSchema);

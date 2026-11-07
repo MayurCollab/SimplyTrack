@@ -1,21 +1,13 @@
 const StageMaster = require('../models/StageMaster');
-const Permission = require('../models/Permission');
-const { orgFilter } = require('../utils/orgScope');
+const { orgFilter, getOrgId } = require('../utils/orgScope');
+const { hasPermission } = require('../services/permissionCache');
 
 function normalizeStageType(rawType) {
   return rawType === 'closing_note' ? 'closing_note' : 'workflow';
 }
 
 async function hasModulePermission(req, module, action) {
-  const user = req.user;
-  if (!user) return false;
-  if (user.role === 'super_admin' || user.role === 'owner') return true;
-  const permission = await Permission.findOne({
-    organizationId: user.organizationId,
-    role: user.role,
-    module,
-  }).lean();
-  return Boolean(permission?.actions?.[action]);
+  return hasPermission(req.user, module, action);
 }
 
 async function guardStagePermission(req, res, action, stageType) {
@@ -30,6 +22,10 @@ async function list(req, res, next) {
   try {
     const stageType = normalizeStageType(req.query.type);
     if (!(await guardStagePermission(req, res, 'view', stageType))) return;
+    // Super-admin on platform (no acting org) — nothing to list, avoid noisy 403s
+    if (!getOrgId(req.user)) {
+      return res.json({ data: [] });
+    }
     const filter = orgFilter(req.user);
     filter.stageType = stageType;
     const search = (req.query.search || '').trim();

@@ -8,6 +8,10 @@ const {
   downloadRun,
   listJobLogs,
   sendTest,
+  listDailySnapshots,
+  getDailySnapshotDetail,
+  downloadDailySnapshot,
+  captureDailySnapshotNow,
 } = require('../controllers/reportController');
 
 const router = express.Router();
@@ -41,6 +45,28 @@ router.post(
   permissionMiddleware('settings', 'edit'),
   monthlyReportTestLimiter,
   sendTest
+);
+
+// Daily historical status snapshots — stored in DB only (not emailed)
+router.get(
+  '/daily-status',
+  permissionMiddleware('reports', 'view'),
+  listDailySnapshots
+);
+router.get(
+  '/daily-status/detail',
+  permissionMiddleware('reports', 'view'),
+  getDailySnapshotDetail
+);
+router.get(
+  '/daily-status/download',
+  permissionMiddleware('reports', 'view'),
+  downloadDailySnapshot
+);
+router.post(
+  '/daily-status/capture',
+  permissionMiddleware('reports', 'view'),
+  captureDailySnapshotNow
 );
 
 module.exports = router;
